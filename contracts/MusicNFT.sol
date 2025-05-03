@@ -11,6 +11,12 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
     mapping(uint256 => uint256) private _streamingRoyalties;
     mapping(uint256 => address) private _creators;
 
+    error NonexistentToken(uint256 tokenId);
+    error EmptyTokenURI();
+    error MaxRoyaltyExceeded(uint256 percentage, uint256 maxAllowed);
+
+    uint256 public constant MAX_ROYALTY_PERCENTAGE = 5000;
+
     constructor() ERC721("MusicNFT", "MUSIC") Ownable(msg.sender) {}
 
     function mintNFT(
@@ -18,6 +24,24 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
         uint256 salesRoyaltyPercentage,
         uint256 streamingRoyaltyPercentage
     ) public returns (uint256) {
+        if (bytes(tokenURI).length == 0) {
+            revert EmptyTokenURI();
+        }
+
+        if (salesRoyaltyPercentage > MAX_ROYALTY_PERCENTAGE) {
+            revert MaxRoyaltyExceeded(
+                salesRoyaltyPercentage,
+                MAX_ROYALTY_PERCENTAGE
+            );
+        }
+
+        if (streamingRoyaltyPercentage > MAX_ROYALTY_PERCENTAGE) {
+            revert MaxRoyaltyExceeded(
+                streamingRoyaltyPercentage,
+                MAX_ROYALTY_PERCENTAGE
+            );
+        }
+
         _tokenIds++;
         uint256 newItemId = _tokenIds;
 
@@ -35,11 +59,21 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
     function getStreamingRoyalty(
         uint256 tokenId
     ) public view returns (uint256) {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
         return _streamingRoyalties[tokenId];
     }
 
     function getCreator(uint256 tokenId) public view returns (address) {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
         return _creators[tokenId];
+    }
+
+    function _exists(uint256 tokenId) internal view returns (bool) {
+        return _ownerOf(tokenId) != address(0);
     }
 
     function supportsInterface(

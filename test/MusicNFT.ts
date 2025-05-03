@@ -69,6 +69,25 @@ describe('MusicNFT', function () {
       expect(royaltyInfo[0]).to.equal(owner.address);
       expect(royaltyInfo[1]).to.equal(300);
     });
+
+    it('Should revert when minting with empty tokenURI', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+
+      // Try to mint with empty URI
+      await expect(
+        musicNFT.mintNFT('', 500, 1000)
+      ).to.be.revertedWithCustomError(musicNFT, 'EmptyTokenURI');
+    });
+
+    it('Should revert when sales royalty exceeds maximum', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+      const maxRoyalty = await musicNFT.MAX_ROYALTY_PERCENTAGE();
+      const excessiveRoyalty = maxRoyalty + 1n;
+
+      await expect(musicNFT.mintNFT('test-uri', excessiveRoyalty, 1000))
+        .to.be.revertedWithCustomError(musicNFT, 'MaxRoyaltyExceeded')
+        .withArgs(excessiveRoyalty, maxRoyalty);
+    });
   });
 
   describe('Streaming royalties', function () {
@@ -96,6 +115,34 @@ describe('MusicNFT', function () {
 
       expect(await musicNFT.getStreamingRoyalty(1)).to.equal(1000);
       expect(await musicNFT.getStreamingRoyalty(2)).to.equal(1500);
+    });
+
+    it('Should revert when streaming royalty exceeds maximum', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+      const maxRoyalty = await musicNFT.MAX_ROYALTY_PERCENTAGE();
+      const excessiveRoyalty = maxRoyalty + 1n;
+
+      await expect(musicNFT.mintNFT('test-uri', 1000, excessiveRoyalty))
+        .to.be.revertedWithCustomError(musicNFT, 'MaxRoyaltyExceeded')
+        .withArgs(excessiveRoyalty, maxRoyalty);
+    });
+
+    it('Should revert when querying streaming royalty for non-existent token', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+      const nonExistentTokenId = 999;
+
+      await expect(musicNFT.getStreamingRoyalty(nonExistentTokenId))
+        .to.be.revertedWithCustomError(musicNFT, 'NonexistentToken')
+        .withArgs(nonExistentTokenId);
+    });
+
+    it('Should revert when querying creator for non-existent token', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+      const nonExistentTokenId = 999;
+
+      await expect(musicNFT.getCreator(nonExistentTokenId))
+        .to.be.revertedWithCustomError(musicNFT, 'NonexistentToken')
+        .withArgs(nonExistentTokenId);
     });
   });
 
