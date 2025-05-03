@@ -28,29 +28,58 @@ describe('MusicNFT', function () {
   });
 
   describe('Minting NFTs', function () {
-    it('Should allow the owner to mint an NFT', async function () {
+    it('Should allow users to mint an NFT with royalties', async function () {
       const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
       const tokenURI = 'https://example.com/token/1';
+      const salesRoyaltyPercentage = 500;
+      const streamingRoyaltyPercentage = 1000;
       const tokenId = 1;
 
-      await expect(musicNFT.mintNFT(owner.address, tokenURI))
+      await expect(
+        musicNFT.mintNFT(
+          tokenURI,
+          salesRoyaltyPercentage,
+          streamingRoyaltyPercentage
+        )
+      )
         .to.emit(musicNFT, 'Transfer')
         .withArgs(ethers.ZeroAddress, owner.address, tokenId);
 
       expect(await musicNFT.ownerOf(tokenId)).to.equal(owner.address);
 
       expect(await musicNFT.tokenURI(tokenId)).to.equal(tokenURI);
+
+      const royaltyInfo = await musicNFT.royaltyInfo(tokenId, 10000);
+      expect(royaltyInfo[0]).to.equal(owner.address);
+      expect(royaltyInfo[1]).to.equal(500);
     });
 
     it('Should increment token ID correctly', async function () {
       const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
-      await musicNFT.mintNFT(owner.address, 'uri1');
-      await musicNFT.mintNFT(owner.address, 'uri2');
+
+      await musicNFT.mintNFT('uri1', 500, 1000);
+      await musicNFT.mintNFT('uri2', 300, 800);
 
       expect(await musicNFT.tokenURI(1)).to.equal('uri1');
       expect(await musicNFT.tokenURI(2)).to.equal('uri2');
 
       expect(await musicNFT.balanceOf(owner.address)).to.equal(2);
+
+      const royaltyInfo = await musicNFT.royaltyInfo(2, 10000);
+      expect(royaltyInfo[0]).to.equal(owner.address);
+      expect(royaltyInfo[1]).to.equal(300);
+    });
+  });
+
+  describe('Interface support', function () {
+    it('Should support ERC721 and ERC2981 interfaces', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+
+      const ERC721InterfaceId = '0x80ac58cd';
+      const ERC2981InterfaceId = '0x2a55205a';
+
+      expect(await musicNFT.supportsInterface(ERC721InterfaceId)).to.be.true;
+      expect(await musicNFT.supportsInterface(ERC2981InterfaceId)).to.be.true;
     });
   });
 });
