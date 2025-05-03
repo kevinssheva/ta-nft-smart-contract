@@ -32,6 +32,16 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
         return newItemId;
     }
 
+    function getStreamingRoyalty(
+        uint256 tokenId
+    ) public view returns (uint256) {
+        return _streamingRoyalties[tokenId];
+    }
+
+    function getCreator(uint256 tokenId) public view returns (address) {
+        return _creators[tokenId];
+    }
+
     function supportsInterface(
         bytes4 interfaceId
     ) public view override(ERC721URIStorage, ERC2981) returns (bool) {

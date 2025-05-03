@@ -71,6 +71,34 @@ describe('MusicNFT', function () {
     });
   });
 
+  describe('Streaming royalties', function () {
+    it('Should set streaming royalties correctly when minting', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+
+      const streamingRoyaltyPercentage = 1500;
+      await musicNFT.mintNFT('streaming-test', 500, streamingRoyaltyPercentage);
+
+      expect(await musicNFT.getStreamingRoyalty(1)).to.equal(
+        streamingRoyaltyPercentage
+      );
+    });
+
+    it('Should store royalties and creator addresses correctly', async function () {
+      const { musicNFT, owner, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      await musicNFT.mintNFT('owner-token', 500, 1000);
+      await musicNFT.connect(otherAccount).mintNFT('other-token', 500, 1500);
+
+      expect(await musicNFT.getCreator(1)).to.equal(owner.address);
+      expect(await musicNFT.getCreator(2)).to.equal(otherAccount.address);
+
+      expect(await musicNFT.getStreamingRoyalty(1)).to.equal(1000);
+      expect(await musicNFT.getStreamingRoyalty(2)).to.equal(1500);
+    });
+  });
+
   describe('Interface support', function () {
     it('Should support ERC721 and ERC2981 interfaces', async function () {
       const { musicNFT } = await loadFixture(deployMusicNFTFixture);
