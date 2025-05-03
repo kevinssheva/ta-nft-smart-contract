@@ -8,4 +8,15 @@ contract MusicNFT is ERC721URIStorage, Ownable {
     uint256 private _tokenIds;
 
     constructor() ERC721("MusicNFT", "MUSIC") Ownable(msg.sender) {}
+
+    function mintNFT(
+        address recipient,
+        string memory tokenURI
+    ) public onlyOwner returns (uint256) {
+        _tokenIds++;
+        uint256 newItemId = _tokenIds;
+        _mint(recipient, newItemId);
+        _setTokenURI(newItemId, tokenURI);
+        return newItemId;
+    }
 }
