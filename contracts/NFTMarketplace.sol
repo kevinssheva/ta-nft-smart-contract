@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./MusicNFT.sol";
 
 contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
+    uint256 public marketFeePercentage = 250;
+
     struct Listing {
         address seller;
         address nftContract;
@@ -20,7 +22,14 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
     mapping(uint256 => Listing) public listings;
     uint256 private _listingIds;
 
+    mapping(address => uint256) private _pendingPayments;
+
     constructor() Ownable(msg.sender) {}
+
+    error InsufficientFunds();
+    error ListingNotActive();
+    error TransferFailed();
+    error NoPaymentsPending();
 
     event NFTListed(
         uint256 indexed listingId,
@@ -29,6 +38,17 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
         uint256 tokenId,
         uint256 price
     );
+
+    event NFTSold(
+        uint256 indexed listingId,
+        address indexed seller,
+        address indexed buyer,
+        address nftContract,
+        uint256 tokenId,
+        uint256 price
+    );
+
+    event PaymentWithdrawn(address indexed recipient, uint256 amount);
 
     function createListing(
         address nftContract,
@@ -54,5 +74,119 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
 
         emit NFTListed(listingId, msg.sender, nftContract, tokenId, price);
         return listingId;
+    }
+
+    function buyNFT(uint256 listingId) external payable nonReentrant {
+        Listing storage listing = listings[listingId];
+
+        address seller = listing.seller;
+        address nftContract = listing.nftContract;
+        uint256 tokenId = listing.tokenId;
+        uint256 price = listing.price;
+
+        if (msg.value < price) {
+            revert InsufficientFunds();
+        }
+
+        if (!listing.isActive) {
+            revert ListingNotActive();
+        }
+
+        listing.isActive = false;
+
+        uint256 remainingAmount = price;
+
+        if (_isERC2981(nftContract)) {
+            (address royaltyReceiver, uint256 royaltyAmount) = IERC2981(
+                nftContract
+            ).royaltyInfo(tokenId, price);
+
+            if (royaltyAmount > 0) {
+                _recordPayment(royaltyReceiver, royaltyAmount);
+                remainingAmount -= royaltyAmount;
+            }
+        }
+
+        uint256 marketFee = (price * marketFeePercentage) / 10000;
+        if (marketFee > 0) {
+            _recordPayment(owner(), marketFee);
+            remainingAmount -= marketFee;
+        }
+
+        _recordPayment(seller, remainingAmount);
+
+        IERC721(nftContract).safeTransferFrom(
+            address(this),
+            msg.sender,
+            tokenId
+        );
+
+        emit NFTSold(
+            listingId,
+            seller,
+            msg.sender,
+            nftContract,
+            tokenId,
+            price
+        );
+
+        uint256 excessAmount = msg.value - price;
+        if (excessAmount > 0) {
+            (bool success, ) = msg.sender.call{value: excessAmount}("");
+            if (!success) {
+                revert TransferFailed();
+            }
+        }
+    }
+
+    function _recordPayment(address recipient, uint256 amount) internal {
+        _pendingPayments[recipient] += amount;
+    }
+
+    function _isERC2981(address contractAddress) internal view returns (bool) {
+        try
+            IERC2981(contractAddress).supportsInterface(
+                type(IERC2981).interfaceId
+            )
+        returns (bool supported) {
+            return supported;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * @dev Allows a user to withdraw their pending payments, including royalties
+     * @return The amount withdrawn
+     */
+    function withdrawPayments() external nonReentrant returns (uint256) {
+        uint256 amount = _pendingPayments[msg.sender];
+
+        if (amount == 0) {
+            revert NoPaymentsPending();
+        }
+
+        // Reset pending payments before transfer to prevent reentrancy
+        _pendingPayments[msg.sender] = 0;
+
+        // Transfer the amount to the sender
+        (bool success, ) = msg.sender.call{value: amount}("");
+        if (!success) {
+            revert TransferFailed();
+        }
+
+        emit PaymentWithdrawn(msg.sender, amount);
+        return amount;
+    }
+
+    /**
+     * @dev Returns the amount of pending payments for a given address
+     * @param recipient The address to check
+     * @return The pending payment amount
+     */
+    function getPendingPayment(
+        address recipient
+    ) external view returns (uint256) {
+        return _pendingPayments[recipient];
     }
 }
