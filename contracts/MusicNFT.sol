@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract MusicNFT is ERC721URIStorage, Ownable {
+    uint256 private _tokenIds;
+
+    constructor() ERC721("MusicNFT", "MUSIC") Ownable(msg.sender) {}
+}
