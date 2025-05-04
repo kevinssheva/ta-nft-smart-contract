@@ -40,7 +40,7 @@ describe('NFTMarketplace', function () {
       .connect(seller)
       .createListing(musicNFT.target, tokenId, price);
     await listingTx.wait();
-    return { listingId: 1, price };
+    return { listingId: tokenId, price };
   }
 
   describe('Deployment', function () {
@@ -502,6 +502,206 @@ describe('NFTMarketplace', function () {
       await expect(
         marketplace.connect(buyer).withdrawPayments()
       ).to.be.revertedWithCustomError(marketplace, 'NoPaymentsPending');
+    });
+  });
+
+  describe('Query Operations', function () {
+    it('Should get listing details by token', async function () {
+      const { marketplace, musicNFT, seller, tokenId } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      const price = ethers.parseEther('1.0');
+      await createListing(marketplace, musicNFT, seller, tokenId, price);
+
+      const [listingId, retrievedSeller, retrievedPrice, isActive] =
+        await marketplace.getListingByToken(musicNFT.target, tokenId);
+
+      expect(listingId).to.equal(1);
+      expect(retrievedSeller).to.equal(seller.address);
+      expect(retrievedPrice).to.equal(price);
+      expect(isActive).to.be.true;
+    });
+
+    it('Should return zeros for non-existent token listings', async function () {
+      const { marketplace, musicNFT } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      const nonExistentTokenId = 999;
+      const [listingId, seller, price, isActive] =
+        await marketplace.getListingByToken(
+          musicNFT.target,
+          nonExistentTokenId
+        );
+
+      expect(listingId).to.equal(0);
+      expect(seller).to.equal(ethers.ZeroAddress);
+      expect(price).to.equal(0);
+      expect(isActive).to.be.false;
+    });
+
+    it('Should count active listings correctly', async function () {
+      const { marketplace, musicNFT, seller } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      expect(await marketplace.getActiveListingsCount()).to.equal(0);
+
+      // Create first token
+      await musicNFT.connect(seller).mintNFT('uri1', 500, 1000);
+      const tokenId1 = 1;
+      await createListing(marketplace, musicNFT, seller, tokenId1);
+
+      expect(await marketplace.getActiveListingsCount()).to.equal(1);
+
+      // Create second token
+      await musicNFT.connect(seller).mintNFT('uri2', 500, 1000);
+      const tokenId2 = 2;
+      await createListing(marketplace, musicNFT, seller, tokenId2);
+
+      expect(await marketplace.getActiveListingsCount()).to.equal(2);
+
+      // Cancel one listing
+      await marketplace.connect(seller).cancelListing(1);
+
+      expect(await marketplace.getActiveListingsCount()).to.equal(1);
+    });
+
+    it('Should get total listings count correctly', async function () {
+      const { marketplace, musicNFT, seller, buyer } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      expect(await marketplace.getTotalListings()).to.equal(0);
+
+      // Create and buy first token
+      await musicNFT.connect(seller).mintNFT('uri1', 500, 1000);
+      const tokenId1 = 1;
+      const { price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId1
+      );
+      await marketplace.connect(buyer).buyNFT(1, { value: price });
+
+      expect(await marketplace.getTotalListings()).to.equal(1);
+
+      // Create and cancel second token
+      await musicNFT.connect(seller).mintNFT('uri2', 500, 1000);
+      const tokenId2 = 2;
+      await createListing(marketplace, musicNFT, seller, tokenId2);
+      await marketplace.connect(seller).cancelListing(2);
+
+      expect(await marketplace.getTotalListings()).to.equal(2);
+    });
+
+    it('Should get active listings with pagination', async function () {
+      const { marketplace, musicNFT, seller } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      // Create 5 listings
+      for (let i = 0; i < 5; i++) {
+        await musicNFT.connect(seller).mintNFT(`uri${i}`, 500, 1000);
+        const tokenId = i + 1;
+        const price = ethers.parseEther(`${i + 1}.0`);
+        await createListing(marketplace, musicNFT, seller, tokenId, price);
+      }
+
+      // Get first 2 listings
+      const [listingIds1, sellers1, nftContracts1, tokenIds1, prices1] =
+        await marketplace.getActiveListings(0, 2);
+
+      expect(listingIds1.length).to.equal(2);
+      expect(listingIds1[0]).to.equal(1);
+      expect(listingIds1[1]).to.equal(2);
+      expect(sellers1[0]).to.equal(seller.address);
+      expect(tokenIds1[0]).to.equal(1);
+      expect(tokenIds1[1]).to.equal(2);
+      expect(prices1[0]).to.equal(ethers.parseEther('1.0'));
+      expect(prices1[1]).to.equal(ethers.parseEther('2.0'));
+
+      // Get next 2 listings
+      const [listingIds2, sellers2, nftContracts2, tokenIds2, prices2] =
+        await marketplace.getActiveListings(2, 2);
+
+      expect(listingIds2.length).to.equal(2);
+      expect(listingIds2[0]).to.equal(3);
+      expect(listingIds2[1]).to.equal(4);
+      expect(tokenIds2[0]).to.equal(3);
+      expect(prices2[1]).to.equal(ethers.parseEther('4.0'));
+
+      // Get listings with out-of-bounds start
+      const [listingIds3, sellers3, nftContracts3, tokenIds3, prices3] =
+        await marketplace.getActiveListings(10, 2);
+
+      expect(listingIds3.length).to.equal(0);
+    });
+
+    it('Should get listings by seller with pagination', async function () {
+      const { marketplace, musicNFT, buyer } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      // Create 3 listings from seller
+      for (let i = 0; i < 3; i++) {
+        await musicNFT.connect(buyer).mintNFT(`uri${i}`, 500, 1000);
+        const tokenId = i + 2;
+        await createListing(marketplace, musicNFT, buyer, tokenId);
+      }
+
+      // Get seller's listings
+      const [listingIds, nftContracts, tokenIds, prices, isActive] =
+        await marketplace.getListingsBySeller(buyer.address, 0, 5);
+
+      expect(listingIds.length).to.equal(3);
+      expect(tokenIds[0]).to.equal(2);
+      expect(tokenIds[1]).to.equal(3);
+      expect(tokenIds[2]).to.equal(4);
+      expect(isActive[0]).to.be.true;
+
+      // Cancel one listing and check isActive status
+      await marketplace.connect(buyer).cancelListing(2);
+
+      const [
+        listingIdsAfter,
+        nftContractsAfter,
+        tokenIdsAfter,
+        pricesAfter,
+        isActiveAfter,
+      ] = await marketplace.getListingsBySeller(buyer.address, 0, 5);
+
+      expect(isActiveAfter[0]).to.be.true;
+      expect(isActiveAfter[1]).to.be.false;
+      expect(isActiveAfter[2]).to.be.true;
+    });
+
+    it('Should check if a token is listed correctly', async function () {
+      const { marketplace, musicNFT, seller, buyer } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      await musicNFT.connect(seller).mintNFT('uri1', 500, 1000);
+      const tokenId1 = 1;
+      const { price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId1
+      );
+
+      expect(await marketplace.isTokenListed(musicNFT.target, tokenId1)).to.be
+        .true;
+
+      // Buy the token and verify it's no longer listed
+      await marketplace.connect(buyer).buyNFT(1, { value: price });
+      expect(await marketplace.isTokenListed(musicNFT.target, tokenId1)).to.be
+        .false;
+
+      // Check non-existent token
+      expect(await marketplace.isTokenListed(musicNFT.target, 999)).to.be.false;
     });
   });
 });

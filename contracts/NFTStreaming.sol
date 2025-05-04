@@ -105,6 +105,116 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
         return _listenCount[tokenId];
     }
 
+    function getTotalListenCount() external view returns (uint256) {
+        uint256 totalCount = 0;
+        MusicNFT musicNFT = _musicNFT;
+        uint256 totalSupply = musicNFT.getTotalSupply();
+
+        for (uint256 i = 1; i <= totalSupply; i++) {
+            if (_tokenExists(i)) {
+                totalCount += _listenCount[i];
+            }
+        }
+
+        return totalCount;
+    }
+
+    function getTopListenedTokens(
+        uint256 limit
+    )
+        external
+        view
+        returns (uint256[] memory tokenIds, uint256[] memory listenCounts)
+    {
+        MusicNFT musicNFT = _musicNFT;
+        uint256 totalSupply = musicNFT.getTotalSupply();
+
+        uint256[] memory allTokenIds = new uint256[](totalSupply);
+        uint256[] memory allListenCounts = new uint256[](totalSupply);
+
+        uint256 validTokenCount = 0;
+        for (uint256 i = 1; i <= totalSupply; i++) {
+            if (_tokenExists(i) && _listenCount[i] > 0) {
+                allTokenIds[validTokenCount] = i;
+                allListenCounts[validTokenCount] = _listenCount[i];
+                validTokenCount++;
+            }
+        }
+
+        if (limit > validTokenCount) {
+            limit = validTokenCount;
+        }
+
+        tokenIds = new uint256[](limit);
+        listenCounts = new uint256[](limit);
+
+        for (uint256 i = 0; i < limit; i++) {
+            uint256 maxIndex = 0;
+            uint256 maxValue = 0;
+
+            for (uint256 j = 0; j < validTokenCount; j++) {
+                if (allListenCounts[j] > maxValue) {
+                    maxValue = allListenCounts[j];
+                    maxIndex = j;
+                }
+            }
+
+            tokenIds[i] = allTokenIds[maxIndex];
+            listenCounts[i] = allListenCounts[maxIndex];
+
+            allListenCounts[maxIndex] = 0;
+        }
+
+        return (tokenIds, listenCounts);
+    }
+
+    function getListenDataByCreator(
+        address creator
+    )
+        external
+        view
+        returns (uint256[] memory tokenIds, uint256[] memory listenCounts)
+    {
+        MusicNFT musicNFT = _musicNFT;
+
+        uint256[] memory creatorTokens = musicNFT.getTokensCreatedBy(creator);
+
+        tokenIds = new uint256[](creatorTokens.length);
+        listenCounts = new uint256[](creatorTokens.length);
+
+        for (uint256 i = 0; i < creatorTokens.length; i++) {
+            tokenIds[i] = creatorTokens[i];
+            listenCounts[i] = _listenCount[creatorTokens[i]];
+        }
+
+        return (tokenIds, listenCounts);
+    }
+
+    function getTotalPendingPayments() external view returns (uint256) {
+        uint256 total = 0;
+        MusicNFT musicNFT = _musicNFT;
+        uint256 totalSupply = musicNFT.getTotalSupply();
+
+        for (uint256 i = 1; i <= totalSupply; i++) {
+            if (_tokenExists(i)) {
+                address creator = musicNFT.getCreator(i);
+                total += _pendingPayments[creator];
+            }
+        }
+
+        for (uint256 i = 1; i <= totalSupply; i++) {
+            if (_tokenExists(i)) {
+                address owner = musicNFT.ownerOf(i);
+                address creator = musicNFT.getCreator(i);
+                if (owner != creator) {
+                    total += _pendingPayments[owner];
+                }
+            }
+        }
+
+        return total;
+    }
+
     function _recordPayment(address recipient, uint256 amount) internal {
         _pendingPayments[recipient] += amount;
     }
