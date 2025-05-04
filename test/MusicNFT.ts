@@ -1,16 +1,90 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers';
 import { expect } from 'chai';
 import hre, { ethers } from 'hardhat';
+import { MusicNFT } from '../typechain-types/contracts';
+import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 
 describe('MusicNFT', function () {
   // Basic fixture that just deploys the contract
   async function deployMusicNFTFixture() {
-    const [owner, otherAccount] = await hre.ethers.getSigners();
+    const [owner, otherAccount, randomUser] = await hre.ethers.getSigners();
 
     const MusicNFT = await hre.ethers.getContractFactory('MusicNFT');
     const musicNFT = await MusicNFT.deploy();
 
-    return { musicNFT, owner, otherAccount };
+    return { musicNFT, owner, otherAccount, randomUser };
+  }
+
+  // Helper function to mint an NFT with standard parameters
+  async function mintNFT(
+    musicNFT: MusicNFT,
+    minter: HardhatEthersSigner,
+    tokenURI = 'https://example.com/token/1',
+    salesRoyaltyPercentage = 500,
+    streamingRoyaltyPercentage = 1000
+  ) {
+    const tx = await musicNFT
+      .connect(minter)
+      .mintNFT(tokenURI, salesRoyaltyPercentage, streamingRoyaltyPercentage);
+    await tx.wait();
+    const tokenId = 1; // First token ID is always 1
+    return {
+      tokenId,
+      tokenURI,
+      salesRoyaltyPercentage,
+      streamingRoyaltyPercentage,
+    };
+  }
+
+  // Helper function to mint a specific edition
+  async function mintEdition(
+    musicNFT: MusicNFT,
+    minter: HardhatEthersSigner,
+    songId: string,
+    maxEditions: number,
+    tokenURI = 'https://example.com/song/edition',
+    salesRoyaltyPercentage = 500,
+    streamingRoyaltyPercentage = 1000
+  ) {
+    const tx = await musicNFT
+      .connect(minter)
+      .mintEdition(
+        tokenURI,
+        songId,
+        maxEditions,
+        salesRoyaltyPercentage,
+        streamingRoyaltyPercentage
+      );
+    const receipt = await tx.wait();
+
+    // Get the token ID from the EditionMinted event
+    const event = receipt?.logs.find((log) => {
+      try {
+        const parsedLog = musicNFT.interface.parseLog({
+          topics: log.topics as string[],
+          data: log.data,
+        });
+        return parsedLog?.name === 'EditionMinted';
+      } catch {
+        return false;
+      }
+    });
+
+    const parsedEvent = event
+      ? musicNFT.interface.parseLog({
+          topics: event.topics as string[],
+          data: event.data,
+        })
+      : null;
+
+    const tokenId = parsedEvent?.args[0] || 0;
+
+    return {
+      tokenId,
+      songId,
+      editionNumber: parsedEvent?.args[2] || 0,
+      maxEditions,
+    };
   }
 
   describe('Deployment', function () {
@@ -246,6 +320,171 @@ describe('MusicNFT', function () {
 
       expect(await musicNFT.supportsInterface(ERC721InterfaceId)).to.be.true;
       expect(await musicNFT.supportsInterface(ERC2981InterfaceId)).to.be.true;
+    });
+  });
+
+  describe('Multiple Editions', function () {
+    it('Should allow minting multiple editions of the same song', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const songId = 'song-123';
+      const maxEditions = 5;
+
+      // Mint first edition
+      const edition1 = await mintEdition(
+        musicNFT,
+        owner,
+        songId,
+        maxEditions,
+        'https://example.com/song/edition1'
+      );
+
+      // Check first edition data
+      const editionInfo1 = await musicNFT.getEditionInfo(edition1.tokenId);
+      expect(editionInfo1[0]).to.equal(songId); // songId
+      expect(editionInfo1[1]).to.equal(1); // editionNumber
+      expect(editionInfo1[2]).to.equal(maxEditions); // maxEditions
+
+      // Check editions counter
+      expect(await musicNFT.getEditionsMinted(songId)).to.equal(1);
+
+      // Mint second edition
+      const edition2 = await mintEdition(
+        musicNFT,
+        owner,
+        songId,
+        maxEditions,
+        'https://example.com/song/edition2'
+      );
+
+      // Check second edition data
+      const editionInfo2 = await musicNFT.getEditionInfo(edition2.tokenId);
+      expect(editionInfo2[0]).to.equal(songId); // songId
+      expect(editionInfo2[1]).to.equal(2); // editionNumber
+      expect(editionInfo2[2]).to.equal(maxEditions); // maxEditions
+
+      // Check editions counter
+      expect(await musicNFT.getEditionsMinted(songId)).to.equal(2);
+    });
+
+    it('Should enforce the edition limit', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const songId = 'limited-song';
+      const maxEditions = 2;
+
+      // Mint first edition
+      await mintEdition(musicNFT, owner, songId, maxEditions);
+
+      // Mint second edition
+      await mintEdition(musicNFT, owner, songId, maxEditions);
+
+      // Try to mint third edition, which should fail
+      await expect(
+        musicNFT
+          .connect(owner)
+          .mintEdition(
+            'https://example.com/song/edition3',
+            songId,
+            maxEditions,
+            500,
+            1000
+          )
+      ).to.be.revertedWithCustomError(musicNFT, 'EditionLimitExceeded');
+    });
+
+    it('Should allow different creators to mint editions of different songs', async function () {
+      const { musicNFT, owner, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      const songId1 = 'song-by-owner';
+      const songId2 = 'song-by-other';
+
+      // Owner mints an edition of their song
+      const edition1 = await mintEdition(musicNFT, owner, songId1, 10);
+
+      // Other account mints an edition of their song
+      const edition2 = await mintEdition(musicNFT, otherAccount, songId2, 5);
+
+      // Check creator mappings
+      expect(await musicNFT.getCreator(edition1.tokenId)).to.equal(
+        owner.address
+      );
+      expect(await musicNFT.getCreator(edition2.tokenId)).to.equal(
+        otherAccount.address
+      );
+
+      // Check edition numbers
+      const editionInfo1 = await musicNFT.getEditionInfo(edition1.tokenId);
+      const editionInfo2 = await musicNFT.getEditionInfo(edition2.tokenId);
+
+      expect(editionInfo1[0]).to.equal(songId1);
+      expect(editionInfo1[1]).to.equal(1); // First edition
+
+      expect(editionInfo2[0]).to.equal(songId2);
+      expect(editionInfo2[1]).to.equal(1); // First edition
+    });
+
+    it('Should allow the same creator to mint editions of different songs', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const songId1 = 'first-song';
+      const songId2 = 'second-song';
+
+      // Creator mints an edition of first song
+      await mintEdition(musicNFT, owner, songId1, 3);
+
+      // Creator mints an edition of second song
+      await mintEdition(musicNFT, owner, songId2, 5);
+
+      // Check editions counters
+      expect(await musicNFT.getEditionsMinted(songId1)).to.equal(1);
+      expect(await musicNFT.getEditionsMinted(songId2)).to.equal(1);
+
+      // Mint more editions of first song
+      await mintEdition(musicNFT, owner, songId1, 3);
+      expect(await musicNFT.getEditionsMinted(songId1)).to.equal(2);
+    });
+
+    it('Should ensure legacy mintNFT function still works', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const tokenURI = 'https://example.com/legacy-token';
+
+      // Use the legacy function
+      const tx = await musicNFT.connect(owner).mintNFT(tokenURI, 500, 1000);
+      const receipt = await tx.wait();
+
+      // Find the EditionMinted event
+      const editionMintedEvents = receipt?.logs.filter((log) => {
+        try {
+          const parsedLog = musicNFT.interface.parseLog({
+            topics: log.topics as string[],
+            data: log.data,
+          });
+          return parsedLog?.name === 'EditionMinted';
+        } catch {
+          return false;
+        }
+      });
+
+      expect(editionMintedEvents?.length).to.equal(1);
+
+      const tokenId = 1;
+
+      // Check token data
+      expect(await musicNFT.tokenURI(tokenId)).to.equal(tokenURI);
+      expect(await musicNFT.ownerOf(tokenId)).to.equal(owner.address);
+      expect(await musicNFT.getStreamingRoyalty(tokenId)).to.equal(1000);
+
+      // Check edition data
+      const editionInfo = await musicNFT.getEditionInfo(tokenId);
+      expect(editionInfo[1]).to.equal(1); // Should be edition #1
+      expect(editionInfo[2]).to.equal(1); // Max editions should be 1
+
+      // Should have auto-generated a songId
+      expect(editionInfo[0]).to.include('song-');
     });
   });
 });
