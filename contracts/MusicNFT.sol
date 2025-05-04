@@ -14,8 +14,11 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
     error NonexistentToken(uint256 tokenId);
     error EmptyTokenURI();
     error MaxRoyaltyExceeded(uint256 percentage, uint256 maxAllowed);
+    error NotAuthorized();
 
     uint256 public constant MAX_ROYALTY_PERCENTAGE = 5000;
+
+    event MetadataUpdated(uint256 indexed tokenId, string newTokenURI);
 
     constructor() ERC721("MusicNFT", "MUSIC") Ownable(msg.sender) {}
 
@@ -70,6 +73,29 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
             revert NonexistentToken(tokenId);
         }
         return _creators[tokenId];
+    }
+
+    function updateTokenURI(
+        uint256 tokenId,
+        string memory newTokenURI
+    ) external {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
+
+        if (
+            _creators[tokenId] != msg.sender && ownerOf(tokenId) != msg.sender
+        ) {
+            revert NotAuthorized();
+        }
+
+        if (bytes(newTokenURI).length == 0) {
+            revert EmptyTokenURI();
+        }
+
+        _setTokenURI(tokenId, newTokenURI);
+
+        emit MetadataUpdated(tokenId, newTokenURI);
     }
 
     function _exists(uint256 tokenId) internal view returns (bool) {

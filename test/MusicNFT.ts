@@ -3,6 +3,7 @@ import { expect } from 'chai';
 import hre, { ethers } from 'hardhat';
 
 describe('MusicNFT', function () {
+  // Basic fixture that just deploys the contract
   async function deployMusicNFTFixture() {
     const [owner, otherAccount] = await hre.ethers.getSigners();
 
@@ -46,7 +47,6 @@ describe('MusicNFT', function () {
         .withArgs(ethers.ZeroAddress, owner.address, tokenId);
 
       expect(await musicNFT.ownerOf(tokenId)).to.equal(owner.address);
-
       expect(await musicNFT.tokenURI(tokenId)).to.equal(tokenURI);
 
       const royaltyInfo = await musicNFT.royaltyInfo(tokenId, 10000);
@@ -142,6 +142,98 @@ describe('MusicNFT', function () {
       await expect(musicNFT.getCreator(nonExistentTokenId))
         .to.be.revertedWithCustomError(musicNFT, 'NonexistentToken')
         .withArgs(nonExistentTokenId);
+    });
+  });
+
+  describe('Updating Metadata', function () {
+    it('Should allow creator to update tokenURI', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+
+      const creator = owner;
+      const tokenId = 1;
+
+      const newTokenURI = 'https://example.com/updated-metadata';
+
+      await expect(
+        musicNFT.connect(creator).updateTokenURI(tokenId, newTokenURI)
+      )
+        .to.emit(musicNFT, 'MetadataUpdated')
+        .withArgs(tokenId, newTokenURI);
+
+      expect(await musicNFT.tokenURI(tokenId)).to.equal(newTokenURI);
+    });
+
+    it('Should allow current owner to update tokenURI', async function () {
+      const { musicNFT, owner, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+
+      const creator = owner;
+      const tokenId = 1;
+
+      await musicNFT
+        .connect(creator)
+        .transferFrom(creator.address, otherAccount.address, tokenId);
+
+      const newTokenURI = 'https://example.com/new-owner-update';
+
+      await expect(
+        musicNFT.connect(otherAccount).updateTokenURI(tokenId, newTokenURI)
+      )
+        .to.emit(musicNFT, 'MetadataUpdated')
+        .withArgs(tokenId, newTokenURI);
+
+      expect(await musicNFT.tokenURI(tokenId)).to.equal(newTokenURI);
+    });
+
+    it('Should not allow non-creator/non-owner to update tokenURI', async function () {
+      const { musicNFT, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+
+      const tokenId = 1;
+
+      const newTokenURI = 'https://example.com/unauthorized-update';
+
+      await expect(
+        musicNFT.connect(otherAccount).updateTokenURI(tokenId, newTokenURI)
+      ).to.be.revertedWithCustomError(musicNFT, 'NotAuthorized');
+    });
+
+    it('Should revert when updating with empty URI', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+
+      const creator = owner;
+      const tokenId = 1;
+
+      const emptyURI = '';
+
+      await expect(
+        musicNFT.connect(creator).updateTokenURI(tokenId, emptyURI)
+      ).to.be.revertedWithCustomError(musicNFT, 'EmptyTokenURI');
+    });
+
+    it('Should revert when updating non-existent token', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const creator = owner;
+
+      const nonExistentTokenId = 999;
+      const newTokenURI = 'https://example.com/new-uri';
+
+      await expect(
+        musicNFT
+          .connect(creator)
+          .updateTokenURI(nonExistentTokenId, newTokenURI)
+      ).to.be.revertedWithCustomError(musicNFT, 'NonexistentToken');
     });
   });
 
