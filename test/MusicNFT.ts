@@ -248,4 +248,89 @@ describe('MusicNFT', function () {
       expect(await musicNFT.supportsInterface(ERC2981InterfaceId)).to.be.true;
     });
   });
+
+  describe('Token Tracking', function () {
+    it('Should track tokens by owner correctly', async function () {
+      const { musicNFT, owner, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+      await musicNFT.mintNFT('https://example.com/token/2', 500, 1000);
+      await musicNFT.mintNFT('https://example.com/token/3', 500, 1000);
+
+      await musicNFT.transferFrom(owner.address, otherAccount.address, 2);
+
+      const ownerTokens = await musicNFT.getTokensOfOwner(owner.address);
+      expect(ownerTokens.length).to.equal(2);
+      expect(ownerTokens[0]).to.equal(1);
+      expect(ownerTokens[1]).to.equal(3);
+
+      const otherAccountTokens = await musicNFT.getTokensOfOwner(
+        otherAccount.address
+      );
+      expect(otherAccountTokens.length).to.equal(1);
+      expect(otherAccountTokens[0]).to.equal(2);
+    });
+
+    it('Should track tokens by creator correctly', async function () {
+      const { musicNFT, owner, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+      await musicNFT.mintNFT('https://example.com/token/2', 500, 1000);
+
+      await musicNFT
+        .connect(otherAccount)
+        .mintNFT('https://example.com/token/3', 500, 1000);
+
+      const ownerCreatedTokens = await musicNFT.getTokensCreatedBy(
+        owner.address
+      );
+      expect(ownerCreatedTokens.length).to.equal(2);
+      expect(ownerCreatedTokens[0]).to.equal(1);
+      expect(ownerCreatedTokens[1]).to.equal(2);
+
+      const otherCreatedTokens = await musicNFT.getTokensCreatedBy(
+        otherAccount.address
+      );
+      expect(otherCreatedTokens.length).to.equal(1);
+      expect(otherCreatedTokens[0]).to.equal(3);
+
+      await musicNFT.transferFrom(owner.address, otherAccount.address, 1);
+
+      const createdTokensAfterTransfer = await musicNFT.getTokensCreatedBy(
+        owner.address
+      );
+      expect(createdTokensAfterTransfer.length).to.equal(2);
+    });
+
+    it('Should track token details correctly', async function () {
+      const { musicNFT, owner, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      const salesRoyaltyPercentage = 500;
+      const streamingRoyaltyPercentage = 1500;
+      await musicNFT.mintNFT(
+        'https://example.com/token/1',
+        salesRoyaltyPercentage,
+        streamingRoyaltyPercentage
+      );
+      const tokenId = 1;
+
+      await musicNFT.transferFrom(owner.address, otherAccount.address, tokenId);
+
+      const details = await musicNFT.getTokenDetails(tokenId);
+
+      expect(details.creator).to.equal(owner.address);
+      expect(details.currentOwner).to.equal(otherAccount.address);
+      expect(details.streamingRoyaltyPercentage).to.equal(
+        streamingRoyaltyPercentage
+      );
+      expect(details.salesRoyaltyReceiver).to.equal(owner.address);
+      expect(details.salesRoyaltyPercentage).to.equal(salesRoyaltyPercentage);
+    });
+  });
 });

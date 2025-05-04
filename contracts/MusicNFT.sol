@@ -10,13 +10,15 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
 
     mapping(uint256 => uint256) private _streamingRoyalties;
     mapping(uint256 => address) private _creators;
+    mapping(address => uint256[]) private _ownedTokens;
+    mapping(uint256 => uint256) private _ownedTokensIndex;
+
+    uint256 public constant MAX_ROYALTY_PERCENTAGE = 5000;
 
     error NonexistentToken(uint256 tokenId);
     error EmptyTokenURI();
     error MaxRoyaltyExceeded(uint256 percentage, uint256 maxAllowed);
     error NotAuthorized();
-
-    uint256 public constant MAX_ROYALTY_PERCENTAGE = 5000;
 
     event MetadataUpdated(uint256 indexed tokenId, string newTokenURI);
 
@@ -59,22 +61,6 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
         return newItemId;
     }
 
-    function getStreamingRoyalty(
-        uint256 tokenId
-    ) public view returns (uint256) {
-        if (!_exists(tokenId)) {
-            revert NonexistentToken(tokenId);
-        }
-        return _streamingRoyalties[tokenId];
-    }
-
-    function getCreator(uint256 tokenId) public view returns (address) {
-        if (!_exists(tokenId)) {
-            revert NonexistentToken(tokenId);
-        }
-        return _creators[tokenId];
-    }
-
     function updateTokenURI(
         uint256 tokenId,
         string memory newTokenURI
@@ -96,6 +82,131 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
         _setTokenURI(tokenId, newTokenURI);
 
         emit MetadataUpdated(tokenId, newTokenURI);
+    }
+
+    function getStreamingRoyalty(
+        uint256 tokenId
+    ) public view returns (uint256) {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
+        return _streamingRoyalties[tokenId];
+    }
+
+    function getSalesRoyalty(
+        uint256 tokenId
+    ) public view returns (address receiver, uint256 royaltyAmount) {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
+        return royaltyInfo(tokenId, 10000);
+    }
+
+    function getCreator(uint256 tokenId) public view returns (address) {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
+        return _creators[tokenId];
+    }
+
+    function getTokensOfOwner(
+        address owner
+    ) public view returns (uint256[] memory) {
+        return _ownedTokens[owner];
+    }
+
+    function getTokensCreatedBy(
+        address creator
+    ) public view returns (uint256[] memory) {
+        uint256[] memory result = new uint256[](getTotalSupply());
+        uint256 count = 0;
+
+        for (uint256 i = 1; i <= _tokenIds; i++) {
+            if (_exists(i) && _creators[i] == creator) {
+                result[count] = i;
+                count++;
+            }
+        }
+
+        // Resize array to the actual count
+        uint256[] memory tokensCreated = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            tokensCreated[i] = result[i];
+        }
+
+        return tokensCreated;
+    }
+
+    function getTokenDetails(
+        uint256 tokenId
+    )
+        public
+        view
+        returns (
+            address creator,
+            address currentOwner,
+            uint256 streamingRoyaltyPercentage,
+            address salesRoyaltyReceiver,
+            uint256 salesRoyaltyPercentage
+        )
+    {
+        if (!_exists(tokenId)) {
+            revert NonexistentToken(tokenId);
+        }
+
+        creator = _creators[tokenId];
+        currentOwner = ownerOf(tokenId);
+        streamingRoyaltyPercentage = _streamingRoyalties[tokenId];
+
+        (salesRoyaltyReceiver, salesRoyaltyPercentage) = royaltyInfo(
+            tokenId,
+            10000
+        );
+        salesRoyaltyPercentage = (salesRoyaltyPercentage * 10000) / 10000; // Normalize to percentage
+
+        return (
+            creator,
+            currentOwner,
+            streamingRoyaltyPercentage,
+            salesRoyaltyReceiver,
+            salesRoyaltyPercentage
+        );
+    }
+
+    function getTotalSupply() public view returns (uint256) {
+        return _tokenIds;
+    }
+
+    function tokenExists(uint256 tokenId) public view returns (bool) {
+        return _exists(tokenId);
+    }
+
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal virtual override returns (address) {
+        address from = super._update(to, tokenId, auth);
+
+        if (from != address(0)) {
+            uint256 fromIndex = _ownedTokensIndex[tokenId];
+            uint256 lastTokenIndex = _ownedTokens[from].length - 1;
+
+            if (fromIndex != lastTokenIndex) {
+                uint256 lastTokenId = _ownedTokens[from][lastTokenIndex];
+                _ownedTokens[from][fromIndex] = lastTokenId;
+                _ownedTokensIndex[lastTokenId] = fromIndex;
+            }
+
+            _ownedTokens[from].pop();
+        }
+
+        if (to != address(0)) {
+            _ownedTokens[to].push(tokenId);
+            _ownedTokensIndex[tokenId] = _ownedTokens[to].length - 1;
+        }
+
+        return from;
     }
 
     function _exists(uint256 tokenId) internal view returns (bool) {
