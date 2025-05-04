@@ -31,6 +31,7 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
     error TransferFailed();
     error NoPaymentsPending();
     error ListingNotFound();
+    error NotListingOwner();
 
     event NFTListed(
         uint256 indexed listingId,
@@ -47,6 +48,13 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
         address nftContract,
         uint256 tokenId,
         uint256 price
+    );
+
+    event NFTListingCancelled(
+        uint256 indexed listingId,
+        address indexed seller,
+        address indexed nftContract,
+        uint256 tokenId
     );
 
     event PaymentWithdrawn(address indexed recipient, uint256 amount);
@@ -142,6 +150,37 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
                 revert TransferFailed();
             }
         }
+    }
+
+    function cancelListing(uint256 listingId) external nonReentrant {
+        Listing storage listing = listings[listingId];
+
+        if (listing.seller == address(0)) {
+            revert ListingNotFound();
+        }
+
+        if (listing.seller != msg.sender) {
+            revert NotListingOwner();
+        }
+
+        if (!listing.isActive) {
+            revert ListingNotActive();
+        }
+
+        listing.isActive = false;
+
+        IERC721(listing.nftContract).safeTransferFrom(
+            address(this),
+            listing.seller,
+            listing.tokenId
+        );
+
+        emit NFTListingCancelled(
+            listingId,
+            listing.seller,
+            listing.nftContract,
+            listing.tokenId
+        );
     }
 
     function withdrawPayments() external nonReentrant returns (uint256) {

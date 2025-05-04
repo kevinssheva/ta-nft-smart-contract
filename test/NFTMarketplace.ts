@@ -340,6 +340,96 @@ describe('NFTMarketplace', function () {
     });
   });
 
+  describe('Cancelling Listings', function () {
+    it('Should allow seller to cancel their listing', async function () {
+      const { marketplace, musicNFT, seller, tokenId } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      const { listingId } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
+
+      expect(await musicNFT.ownerOf(tokenId)).to.equal(marketplace.target);
+
+      await expect(marketplace.connect(seller).cancelListing(listingId))
+        .to.emit(marketplace, 'NFTListingCancelled')
+        .withArgs(listingId, seller.address, musicNFT.target, tokenId);
+
+      const listing = await marketplace.listings(listingId);
+      expect(listing.isActive).to.be.false;
+
+      expect(await musicNFT.ownerOf(tokenId)).to.equal(seller.address);
+    });
+
+    it('Should revert when non-seller tries to cancel a listing', async function () {
+      const { marketplace, musicNFT, seller, buyer, tokenId } =
+        await loadFixture(deployMarketplaceFixture);
+
+      const { listingId } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
+
+      await expect(
+        marketplace.connect(buyer).cancelListing(listingId)
+      ).to.be.revertedWithCustomError(marketplace, 'NotListingOwner');
+    });
+
+    it('Should revert when trying to cancel a non-existent listing', async function () {
+      const { marketplace, seller } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      const nonExistentListingId = 999;
+
+      await expect(
+        marketplace.connect(seller).cancelListing(nonExistentListingId)
+      ).to.be.revertedWithCustomError(marketplace, 'ListingNotFound');
+    });
+
+    it('Should revert when trying to cancel an inactive listing', async function () {
+      const { marketplace, musicNFT, seller, buyer, tokenId } =
+        await loadFixture(deployMarketplaceFixture);
+
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
+
+      await marketplace.connect(buyer).buyNFT(listingId, { value: price });
+
+      await expect(
+        marketplace.connect(seller).cancelListing(listingId)
+      ).to.be.revertedWithCustomError(marketplace, 'ListingNotActive');
+    });
+
+    it('Should not allow buying a cancelled listing', async function () {
+      const { marketplace, musicNFT, seller, buyer, tokenId } =
+        await loadFixture(deployMarketplaceFixture);
+
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
+
+      await marketplace.connect(seller).cancelListing(listingId);
+
+      await expect(
+        marketplace.connect(buyer).buyNFT(listingId, { value: price })
+      ).to.be.revertedWithCustomError(marketplace, 'ListingNotActive');
+    });
+  });
+
   describe('Withdrawing Payments', function () {
     it('Should allow withdrawal of royalties and fees', async function () {
       const { marketplace, musicNFT, seller, buyer, tokenId, owner } =
