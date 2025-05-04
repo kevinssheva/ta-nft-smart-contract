@@ -1,16 +1,16 @@
 import { loadFixture } from '@nomicfoundation/hardhat-toolbox/network-helpers';
 import { expect } from 'chai';
 import hre, { ethers } from 'hardhat';
+import { NFTMarketplace, MusicNFT } from '../typechain-types/contracts';
+import { HardhatEthersSigner } from '@nomicfoundation/hardhat-ethers/signers';
 
 describe('NFTMarketplace', function () {
   async function deployMarketplaceFixture() {
     const [owner, seller, buyer] = await hre.ethers.getSigners();
 
-    // Deploy MusicNFT contract first
     const MusicNFT = await hre.ethers.getContractFactory('MusicNFT');
     const musicNFT = await MusicNFT.deploy();
 
-    // Deploy NFTMarketplace contract
     const NFTMarketplace = await hre.ethers.getContractFactory(
       'NFTMarketplace'
     );
@@ -28,6 +28,21 @@ describe('NFTMarketplace', function () {
     return { marketplace, musicNFT, owner, seller, buyer, tokenId };
   }
 
+  async function createListing(
+    marketplace: NFTMarketplace,
+    musicNFT: MusicNFT,
+    seller: HardhatEthersSigner,
+    tokenId: number,
+    price = ethers.parseEther('1.0')
+  ) {
+    await musicNFT.connect(seller).approve(marketplace.target, tokenId);
+    const listingTx = await marketplace
+      .connect(seller)
+      .createListing(musicNFT.target, tokenId, price);
+    await listingTx.wait();
+    return { listingId: 1, price };
+  }
+
   describe('Deployment', function () {
     it('Should set the correct owner', async function () {
       const { marketplace, owner } = await loadFixture(
@@ -43,23 +58,18 @@ describe('NFTMarketplace', function () {
         deployMarketplaceFixture
       );
 
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
-      const listingPrice = ethers.parseEther('1.0');
-
-      await expect(
-        marketplace
-          .connect(seller)
-          .createListing(musicNFT.target, tokenId, listingPrice)
-      )
-        .to.emit(marketplace, 'NFTListed')
-        .withArgs(1, seller.address, musicNFT.target, tokenId, listingPrice);
-
-      const listing = await marketplace.listings(1);
+      const listing = await marketplace.listings(listingId);
       expect(listing.seller).to.equal(seller.address);
       expect(listing.nftContract).to.equal(musicNFT.target);
       expect(listing.tokenId).to.equal(tokenId);
-      expect(listing.price).to.equal(listingPrice);
+      expect(listing.price).to.equal(price);
       expect(listing.isActive).to.be.true;
 
       expect(await musicNFT.ownerOf(tokenId)).to.equal(marketplace.target);
@@ -74,15 +84,14 @@ describe('NFTMarketplace', function () {
       const tokenId1 = 1;
       const tokenId2 = 2;
 
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId1);
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId1, ethers.parseEther('1.0'));
-
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId2);
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId2, ethers.parseEther('2.0'));
+      await createListing(marketplace, musicNFT, seller, tokenId1);
+      await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId2,
+        ethers.parseEther('2.0')
+      );
 
       const listing1 = await marketplace.listings(1);
       const listing2 = await marketplace.listings(2);
@@ -122,26 +131,27 @@ describe('NFTMarketplace', function () {
       const { marketplace, musicNFT, seller, buyer, tokenId } =
         await loadFixture(deployMarketplaceFixture);
 
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
-      const listingPrice = ethers.parseEther('1.0');
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId, listingPrice);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
       await expect(
-        marketplace.connect(buyer).buyNFT(1, { value: listingPrice })
+        marketplace.connect(buyer).buyNFT(listingId, { value: price })
       )
         .to.emit(marketplace, 'NFTSold')
         .withArgs(
-          1,
+          listingId,
           seller.address,
           buyer.address,
           musicNFT.target,
           tokenId,
-          listingPrice
+          price
         );
 
-      const listing = await marketplace.listings(1);
+      const listing = await marketplace.listings(listingId);
       expect(listing.isActive).to.be.false;
 
       expect(await musicNFT.ownerOf(tokenId)).to.equal(buyer.address);
@@ -151,30 +161,37 @@ describe('NFTMarketplace', function () {
       const { marketplace, musicNFT, seller, buyer, tokenId, owner } =
         await loadFixture(deployMarketplaceFixture);
 
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
-      const listingPrice = ethers.parseEther('1.0');
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId, listingPrice);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
       const marketFeePercentage = await marketplace.marketFeePercentage();
 
       const [royaltyReceiver, royaltyAmount] = await musicNFT.royaltyInfo(
         tokenId,
-        listingPrice
+        price
       );
       expect(royaltyReceiver).to.equal(seller.address);
 
-      const marketFee = (listingPrice * marketFeePercentage) / 10000n;
-      const sellerProceeds = listingPrice - royaltyAmount - marketFee;
+      const marketFee = (price * marketFeePercentage) / 10000n;
+      const sellerProceeds = price - royaltyAmount - marketFee;
 
       const tx = await marketplace
         .connect(buyer)
-        .buyNFT(1, { value: listingPrice });
+        .buyNFT(listingId, { value: price });
       await tx.wait();
 
-      // Add a check for pending payments if there's a function to access them
-      // For now we can only verify that the NFT was transferred correctly
+      const pendingPaymentSeller = await marketplace.getPendingPayment(
+        seller.address
+      );
+      const pendingPaymentOwner = await marketplace.getPendingPayment(
+        owner.address
+      );
+      expect(pendingPaymentSeller).to.equal(sellerProceeds + royaltyAmount);
+      expect(pendingPaymentOwner).to.equal(marketFee);
       expect(await musicNFT.ownerOf(tokenId)).to.equal(buyer.address);
     });
 
@@ -182,54 +199,50 @@ describe('NFTMarketplace', function () {
       const { marketplace, musicNFT, seller, buyer, tokenId } =
         await loadFixture(deployMarketplaceFixture);
 
-      // Create a listing
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
-      const listingPrice = ethers.parseEther('1.0');
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId, listingPrice);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
-      // Store buyer's initial balance
       const initialBuyerBalance = await ethers.provider.getBalance(
         buyer.address
       );
 
-      // Buy with excess payment
-      const paymentAmount = ethers.parseEther('1.5'); // 0.5 ETH excess
+      const paymentAmount = ethers.parseEther('1.5');
       const tx = await marketplace
         .connect(buyer)
-        .buyNFT(1, { value: paymentAmount });
+        .buyNFT(listingId, { value: paymentAmount });
       const receipt = await tx.wait();
 
-      // Calculate gas used
       const gasUsed = receipt?.gasUsed ?? 0n;
       const gasPrice = receipt?.gasPrice ?? 0n;
       const gasCost = gasUsed * gasPrice;
 
-      // Check final balance (should be initial - listingPrice - gasCost)
       const finalBuyerBalance = await ethers.provider.getBalance(buyer.address);
-      const expectedBalance = initialBuyerBalance - listingPrice - gasCost;
+      const expectedBalance = initialBuyerBalance - price - gasCost;
 
-      // Allow for small rounding differences due to gas calculation
       const difference = expectedBalance - finalBuyerBalance;
-      expect(difference).to.be.lessThan(1000000n); // Very small difference allowed
+      expect(difference).to.be.lessThan(1000000n);
     });
 
     it('Should revert when trying to buy with insufficient funds', async function () {
       const { marketplace, musicNFT, seller, buyer, tokenId } =
         await loadFixture(deployMarketplaceFixture);
 
-      // Create a listing
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
-      const listingPrice = ethers.parseEther('1.0');
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId, listingPrice);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
-      // Try to buy with insufficient funds
       const insufficientAmount = ethers.parseEther('0.5');
       await expect(
-        marketplace.connect(buyer).buyNFT(1, { value: insufficientAmount })
+        marketplace
+          .connect(buyer)
+          .buyNFT(listingId, { value: insufficientAmount })
       ).to.be.revertedWithCustomError(marketplace, 'InsufficientFunds');
     });
 
@@ -237,19 +250,17 @@ describe('NFTMarketplace', function () {
       const { marketplace, musicNFT, seller, buyer, tokenId } =
         await loadFixture(deployMarketplaceFixture);
 
-      // Create a listing
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
-      const listingPrice = ethers.parseEther('1.0');
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId, listingPrice);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
-      // First purchase (should succeed)
-      await marketplace.connect(buyer).buyNFT(1, { value: listingPrice });
+      await marketplace.connect(buyer).buyNFT(listingId, { value: price });
 
-      // Try to buy again (should fail as listing is inactive)
       await expect(
-        marketplace.connect(buyer).buyNFT(1, { value: listingPrice })
+        marketplace.connect(buyer).buyNFT(listingId, { value: price })
       ).to.be.revertedWithCustomError(marketplace, 'ListingNotActive');
     });
 
@@ -271,43 +282,99 @@ describe('NFTMarketplace', function () {
       ).to.be.reverted;
     });
 
+    it('Should handle multiple sales with different royalties', async function () {
+      const { marketplace, musicNFT, seller, buyer, owner } = await loadFixture(
+        deployMarketplaceFixture
+      );
+
+      const [, , , secondSeller] = await ethers.getSigners();
+
+      await musicNFT
+        .connect(secondSeller)
+        .mintNFT('https://example.com/token/2', 1000, 1500);
+      const secondTokenId = 2;
+
+      const { listingId: firstListingId, price: firstPrice } =
+        await createListing(marketplace, musicNFT, seller, 1);
+
+      await createListing(
+        marketplace,
+        musicNFT,
+        secondSeller,
+        secondTokenId,
+        ethers.parseEther('2.0')
+      );
+
+      await marketplace
+        .connect(buyer)
+        .buyNFT(firstListingId, { value: firstPrice });
+      await marketplace
+        .connect(buyer)
+        .buyNFT(2, { value: ethers.parseEther('2.0') });
+
+      const [, firstRoyaltyAmount] = await musicNFT.royaltyInfo(1, firstPrice);
+      const [, secondRoyaltyAmount] = await musicNFT.royaltyInfo(
+        secondTokenId,
+        ethers.parseEther('2.0')
+      );
+
+      const marketFeePercentage = await marketplace.marketFeePercentage();
+      const firstMarketFee = (firstPrice * marketFeePercentage) / 10000n;
+      const secondMarketFee =
+        (ethers.parseEther('2.0') * marketFeePercentage) / 10000n;
+
+      expect(secondRoyaltyAmount).to.be.gt(firstRoyaltyAmount);
+
+      const firstSellerProceeds =
+        firstPrice - firstRoyaltyAmount - firstMarketFee;
+      expect(await marketplace.getPendingPayment(seller.address)).to.equal(
+        firstSellerProceeds + firstRoyaltyAmount
+      );
+
+      const secondSellerProceeds =
+        ethers.parseEther('2.0') - secondRoyaltyAmount - secondMarketFee;
+      expect(
+        await marketplace.getPendingPayment(secondSeller.address)
+      ).to.equal(secondSellerProceeds + secondRoyaltyAmount);
+
+      expect(await marketplace.getPendingPayment(owner.address)).to.equal(
+        firstMarketFee + secondMarketFee
+      );
+    });
+  });
+
+  describe('Withdrawing Payments', function () {
     it('Should allow withdrawal of royalties and fees', async function () {
       const { marketplace, musicNFT, seller, buyer, tokenId, owner } =
         await loadFixture(deployMarketplaceFixture);
 
-      // Create a listing
-      await musicNFT.connect(seller).approve(marketplace.target, tokenId);
-      const listingPrice = ethers.parseEther('1.0');
-      await marketplace
-        .connect(seller)
-        .createListing(musicNFT.target, tokenId, listingPrice);
+      const { listingId, price } = await createListing(
+        marketplace,
+        musicNFT,
+        seller,
+        tokenId
+      );
 
-      // Get the marketplace fee percentage and calculate expected market fee
       const marketFeePercentage = await marketplace.marketFeePercentage();
-      const marketFee = (listingPrice * marketFeePercentage) / 10000n;
+      const marketFee = (price * marketFeePercentage) / 10000n;
 
-      // Get royalty info
       const [royaltyReceiver, royaltyAmount] = await musicNFT.royaltyInfo(
         tokenId,
-        listingPrice
+        price
       );
       expect(royaltyReceiver).to.equal(seller.address);
 
-      // Calculate expected seller proceeds
-      const sellerProceeds = listingPrice - royaltyAmount - marketFee;
+      const sellerProceeds = price - royaltyAmount - marketFee;
 
-      // Buy the NFT
-      await marketplace.connect(buyer).buyNFT(1, { value: listingPrice });
+      await marketplace.connect(buyer).buyNFT(listingId, { value: price });
 
-      // Check pending payments
       expect(await marketplace.getPendingPayment(seller.address)).to.equal(
-        sellerProceeds + royaltyAmount // Seller gets both sale proceeds and royalties
+        sellerProceeds + royaltyAmount
       );
       expect(await marketplace.getPendingPayment(owner.address)).to.equal(
         marketFee
       );
 
-      // Check seller withdrawal
       const initialSellerBalance = await ethers.provider.getBalance(
         seller.address
       );
@@ -315,12 +382,10 @@ describe('NFTMarketplace', function () {
       const withdrawTx = await marketplace.connect(seller).withdrawPayments();
       const receipt = await withdrawTx.wait();
 
-      // Calculate gas used for withdrawal
       const gasUsed = receipt?.gasUsed ?? 0n;
       const gasPrice = receipt?.gasPrice ?? 0n;
       const gasCost = gasUsed * gasPrice;
 
-      // Check that the seller received the correct amount
       const finalSellerBalance = await ethers.provider.getBalance(
         seller.address
       );
@@ -328,10 +393,8 @@ describe('NFTMarketplace', function () {
         initialSellerBalance + sellerProceeds + royaltyAmount - gasCost
       );
 
-      // Verify pending payment is now zero
       expect(await marketplace.getPendingPayment(seller.address)).to.equal(0);
 
-      // Check owner/marketplace fee withdrawal
       const initialOwnerBalance = await ethers.provider.getBalance(
         owner.address
       );
@@ -339,10 +402,8 @@ describe('NFTMarketplace', function () {
       await marketplace.connect(owner).withdrawPayments();
 
       const finalOwnerBalance = await ethers.provider.getBalance(owner.address);
-      // Account for gas used in the withdrawal transaction
       expect(finalOwnerBalance).to.be.greaterThan(initialOwnerBalance);
 
-      // Verify pending payment is now zero
       expect(await marketplace.getPendingPayment(owner.address)).to.equal(0);
     });
 
@@ -351,7 +412,6 @@ describe('NFTMarketplace', function () {
         deployMarketplaceFixture
       );
 
-      // Try to withdraw with no pending payments
       await expect(
         marketplace.connect(buyer).withdrawPayments()
       ).to.be.revertedWithCustomError(marketplace, 'NoPaymentsPending');
