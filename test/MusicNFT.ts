@@ -73,7 +73,6 @@ describe('MusicNFT', function () {
     it('Should revert when minting with empty tokenURI', async function () {
       const { musicNFT } = await loadFixture(deployMusicNFTFixture);
 
-      // Try to mint with empty URI
       await expect(
         musicNFT.mintNFT('', 500, 1000)
       ).to.be.revertedWithCustomError(musicNFT, 'EmptyTokenURI');

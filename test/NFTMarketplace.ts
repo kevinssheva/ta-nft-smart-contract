@@ -17,8 +17,8 @@ describe('NFTMarketplace', function () {
     const marketplace = await NFTMarketplace.deploy();
 
     const tokenURI = 'https://example.com/token/1';
-    const salesRoyaltyPercentage = 500; // 5%
-    const streamingRoyaltyPercentage = 1000; // 10%
+    const salesRoyaltyPercentage = 500;
+    const streamingRoyaltyPercentage = 1000;
     await musicNFT
       .connect(seller)
       .mintNFT(tokenURI, salesRoyaltyPercentage, streamingRoyaltyPercentage);
@@ -231,7 +231,7 @@ describe('NFTMarketplace', function () {
       const { marketplace, musicNFT, seller, buyer, tokenId } =
         await loadFixture(deployMarketplaceFixture);
 
-      const { listingId, price } = await createListing(
+      const { listingId } = await createListing(
         marketplace,
         musicNFT,
         seller,
@@ -272,14 +272,11 @@ describe('NFTMarketplace', function () {
       const nonExistentListingId = 999;
       const amount = ethers.parseEther('1.0');
 
-      // Try to buy a non-existent listing
-      // The specific error might vary based on your implementation
-      // It could revert with ListingNotActive or another custom error
       await expect(
         marketplace
           .connect(buyer)
           .buyNFT(nonExistentListingId, { value: amount })
-      ).to.be.reverted;
+      ).to.be.revertedWithCustomError(marketplace, 'ListingNotFound');
     });
 
     it('Should handle multiple sales with different royalties', async function () {

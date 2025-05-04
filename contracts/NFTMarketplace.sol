@@ -30,6 +30,7 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
     error ListingNotActive();
     error TransferFailed();
     error NoPaymentsPending();
+    error ListingNotFound();
 
     event NFTListed(
         uint256 indexed listingId,
@@ -78,6 +79,10 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
 
     function buyNFT(uint256 listingId) external payable nonReentrant {
         Listing storage listing = listings[listingId];
+
+        if (listing.seller == address(0)) {
+            revert ListingNotFound();
+        }
 
         address seller = listing.seller;
         address nftContract = listing.nftContract;
@@ -139,6 +144,30 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
         }
     }
 
+    function withdrawPayments() external nonReentrant returns (uint256) {
+        uint256 amount = _pendingPayments[msg.sender];
+
+        if (amount == 0) {
+            revert NoPaymentsPending();
+        }
+
+        _pendingPayments[msg.sender] = 0;
+
+        (bool success, ) = msg.sender.call{value: amount}("");
+        if (!success) {
+            revert TransferFailed();
+        }
+
+        emit PaymentWithdrawn(msg.sender, amount);
+        return amount;
+    }
+
+    function getPendingPayment(
+        address recipient
+    ) external view returns (uint256) {
+        return _pendingPayments[recipient];
+    }
+
     function _recordPayment(address recipient, uint256 amount) internal {
         _pendingPayments[recipient] += amount;
     }
@@ -153,40 +182,5 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
         } catch {
             return false;
         }
-    }
-
-    /**
-     * @dev Allows a user to withdraw their pending payments, including royalties
-     * @return The amount withdrawn
-     */
-    function withdrawPayments() external nonReentrant returns (uint256) {
-        uint256 amount = _pendingPayments[msg.sender];
-
-        if (amount == 0) {
-            revert NoPaymentsPending();
-        }
-
-        // Reset pending payments before transfer to prevent reentrancy
-        _pendingPayments[msg.sender] = 0;
-
-        // Transfer the amount to the sender
-        (bool success, ) = msg.sender.call{value: amount}("");
-        if (!success) {
-            revert TransferFailed();
-        }
-
-        emit PaymentWithdrawn(msg.sender, amount);
-        return amount;
-    }
-
-    /**
-     * @dev Returns the amount of pending payments for a given address
-     * @param recipient The address to check
-     * @return The pending payment amount
-     */
-    function getPendingPayment(
-        address recipient
-    ) external view returns (uint256) {
-        return _pendingPayments[recipient];
     }
 }
