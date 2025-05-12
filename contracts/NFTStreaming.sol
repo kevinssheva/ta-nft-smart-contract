@@ -218,11 +218,6 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
         return (tokenIds, listenCounts);
     }
 
-    function getTotalPendingPayments() external view returns (uint256) {
-        // This function can remain unchanged as it operates on _pendingPayments mapping only
-        return _pendingPayments[msg.sender];
-    }
-
     function _recordPayment(address recipient, uint256 amount) internal {
         _pendingPayments[recipient] += amount;
     }
