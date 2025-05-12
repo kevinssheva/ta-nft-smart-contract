@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/common/ERC2981.sol";
@@ -19,6 +19,14 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
     error EmptyTokenURI();
     error MaxRoyaltyExceeded(uint256 percentage, uint256 maxAllowed);
     error NotAuthorized();
+
+    event NFTMinted(
+        uint256 indexed tokenId,
+        address indexed creator,
+        string tokenURI,
+        uint256 salesRoyaltyPercentage,
+        uint256 streamingRoyaltyPercentage
+    );
 
     event MetadataUpdated(uint256 indexed tokenId, string newTokenURI);
 
@@ -57,6 +65,14 @@ contract MusicNFT is ERC721URIStorage, ERC2981, Ownable {
         _creators[newItemId] = msg.sender;
 
         _setTokenRoyalty(newItemId, msg.sender, uint96(salesRoyaltyPercentage));
+
+        emit NFTMinted(
+            newItemId,
+            msg.sender,
+            tokenURI,
+            salesRoyaltyPercentage,
+            streamingRoyaltyPercentage
+        );
 
         return newItemId;
     }
