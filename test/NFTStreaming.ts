@@ -10,7 +10,7 @@ describe('NFTStreaming', function () {
     const musicNFT = await MusicNFT.deploy();
 
     const NFTStreaming = await hre.ethers.getContractFactory('NFTStreaming');
-    const streaming = await NFTStreaming.deploy(musicNFT.target);
+    const streaming = await NFTStreaming.deploy();
 
     const tokenURI = 'https://example.com/token/1';
     const salesRoyaltyPercentage = 500;
@@ -45,6 +45,7 @@ describe('NFTStreaming', function () {
     it('Should record batch listens correctly', async function () {
       const {
         streaming,
+        musicNFT,
         creator,
         listener,
         tokenId,
@@ -61,14 +62,22 @@ describe('NFTStreaming', function () {
       await expect(
         streaming
           .connect(listener)
-          .recordBatchListens(tokenId, listenCount, paymentAmount, {
-            value: paymentAmount,
-          })
+          .recordBatchListens(
+            musicNFT.target,
+            tokenId,
+            listenCount,
+            paymentAmount,
+            {
+              value: paymentAmount,
+            }
+          )
       )
         .to.emit(streaming, 'BatchListensRecorded')
-        .withArgs(tokenId, listenCount, paymentAmount);
+        .withArgs(musicNFT.target, tokenId, listenCount, paymentAmount);
 
-      expect(await streaming.getListenCount(tokenId)).to.equal(listenCount);
+      expect(await streaming.getListenCount(musicNFT.target, tokenId)).to.equal(
+        listenCount
+      );
 
       const expectedCreatorPayment = royaltyAmount + remainingAmount;
       expect(await streaming.getPendingPayment(creator.address)).to.equal(
@@ -77,7 +86,7 @@ describe('NFTStreaming', function () {
     });
 
     it('Should handle excess payment correctly', async function () {
-      const { streaming, listener, tokenId } = await loadFixture(
+      const { streaming, musicNFT, listener, tokenId } = await loadFixture(
         deployStreamingFixture
       );
 
@@ -90,9 +99,15 @@ describe('NFTStreaming', function () {
 
       const tx = await streaming
         .connect(listener)
-        .recordBatchListens(tokenId, listenCount, paymentAmount, {
-          value: totalSent,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId,
+          listenCount,
+          paymentAmount,
+          {
+            value: totalSent,
+          }
+        );
       const receipt = await tx.wait();
 
       const gasUsed = receipt?.gasUsed ?? 0n;
@@ -107,7 +122,9 @@ describe('NFTStreaming', function () {
     });
 
     it('Should revert when token does not exist', async function () {
-      const { streaming, listener } = await loadFixture(deployStreamingFixture);
+      const { streaming, musicNFT, listener } = await loadFixture(
+        deployStreamingFixture
+      );
 
       const nonExistentTokenId = 999;
       const listenCount = 10;
@@ -116,14 +133,20 @@ describe('NFTStreaming', function () {
       await expect(
         streaming
           .connect(listener)
-          .recordBatchListens(nonExistentTokenId, listenCount, paymentAmount, {
-            value: paymentAmount,
-          })
+          .recordBatchListens(
+            musicNFT.target,
+            nonExistentTokenId,
+            listenCount,
+            paymentAmount,
+            {
+              value: paymentAmount,
+            }
+          )
       ).to.be.revertedWithCustomError(streaming, 'NonexistentToken');
     });
 
     it('Should revert with insufficient payment', async function () {
-      const { streaming, listener, tokenId } = await loadFixture(
+      const { streaming, musicNFT, listener, tokenId } = await loadFixture(
         deployStreamingFixture
       );
 
@@ -134,14 +157,20 @@ describe('NFTStreaming', function () {
       await expect(
         streaming
           .connect(listener)
-          .recordBatchListens(tokenId, listenCount, paymentAmount, {
-            value: insufficientPayment,
-          })
+          .recordBatchListens(
+            musicNFT.target,
+            tokenId,
+            listenCount,
+            paymentAmount,
+            {
+              value: insufficientPayment,
+            }
+          )
       ).to.be.revertedWithCustomError(streaming, 'InsufficientPayment');
     });
 
     it('Should revert with invalid listen count', async function () {
-      const { streaming, listener, tokenId } = await loadFixture(
+      const { streaming, musicNFT, listener, tokenId } = await loadFixture(
         deployStreamingFixture
       );
 
@@ -151,9 +180,15 @@ describe('NFTStreaming', function () {
       await expect(
         streaming
           .connect(listener)
-          .recordBatchListens(tokenId, invalidListenCount, paymentAmount, {
-            value: paymentAmount,
-          })
+          .recordBatchListens(
+            musicNFT.target,
+            tokenId,
+            invalidListenCount,
+            paymentAmount,
+            {
+              value: paymentAmount,
+            }
+          )
       ).to.be.revertedWithCustomError(streaming, 'InvalidListenCount');
     });
   });
@@ -178,9 +213,15 @@ describe('NFTStreaming', function () {
       const paymentAmount = ethers.parseEther('1.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(tokenId, listenCount, paymentAmount, {
-          value: paymentAmount,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId,
+          listenCount,
+          paymentAmount,
+          {
+            value: paymentAmount,
+          }
+        );
 
       const royaltyAmount =
         (paymentAmount * BigInt(streamingRoyaltyPercentage)) / 10000n;
@@ -195,17 +236,22 @@ describe('NFTStreaming', function () {
     });
 
     it('Should allow withdrawal of streaming royalties', async function () {
-      const { streaming, creator, listener, tokenId } = await loadFixture(
-        deployStreamingFixture
-      );
+      const { streaming, musicNFT, creator, listener, tokenId } =
+        await loadFixture(deployStreamingFixture);
 
       const listenCount = 100;
       const paymentAmount = ethers.parseEther('1.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(tokenId, listenCount, paymentAmount, {
-          value: paymentAmount,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId,
+          listenCount,
+          paymentAmount,
+          {
+            value: paymentAmount,
+          }
+        );
 
       const pendingRoyalties = await streaming.getPendingPayment(
         creator.address
@@ -240,36 +286,50 @@ describe('NFTStreaming', function () {
 
   describe('Query Operations', function () {
     it('Should get total listen count correctly', async function () {
-      const { streaming, listener, tokenId } = await loadFixture(
+      const { streaming, musicNFT, listener, tokenId } = await loadFixture(
         deployStreamingFixture
       );
 
       // Initial count should be 0
-      expect(await streaming.getTotalListenCount()).to.equal(0);
+      expect(await streaming.getTotalListenCount(musicNFT.target)).to.equal(0);
 
       // Record batch listens for the token
       const listenCount1 = 100;
       const paymentAmount1 = ethers.parseEther('1.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(tokenId, listenCount1, paymentAmount1, {
-          value: paymentAmount1,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId,
+          listenCount1,
+          paymentAmount1,
+          {
+            value: paymentAmount1,
+          }
+        );
 
       // Total count should equal the first batch
-      expect(await streaming.getTotalListenCount()).to.equal(listenCount1);
+      expect(await streaming.getTotalListenCount(musicNFT.target)).to.equal(
+        listenCount1
+      );
 
       // Add more listens
       const listenCount2 = 50;
       const paymentAmount2 = ethers.parseEther('0.5');
       await streaming
         .connect(listener)
-        .recordBatchListens(tokenId, listenCount2, paymentAmount2, {
-          value: paymentAmount2,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId,
+          listenCount2,
+          paymentAmount2,
+          {
+            value: paymentAmount2,
+          }
+        );
 
       // Total count should accumulate
-      expect(await streaming.getTotalListenCount()).to.equal(
+      expect(await streaming.getTotalListenCount(musicNFT.target)).to.equal(
         listenCount1 + listenCount2
       );
     });
@@ -294,27 +354,43 @@ describe('NFTStreaming', function () {
       const paymentAmount1 = ethers.parseEther('1.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(tokenId1, listenCount1, paymentAmount1, {
-          value: paymentAmount1,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId1,
+          listenCount1,
+          paymentAmount1,
+          {
+            value: paymentAmount1,
+          }
+        );
 
       // Record listens for second token
       const listenCount2 = 200;
       const paymentAmount2 = ethers.parseEther('2.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(tokenId2, listenCount2, paymentAmount2, {
-          value: paymentAmount2,
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          tokenId2,
+          listenCount2,
+          paymentAmount2,
+          {
+            value: paymentAmount2,
+          }
+        );
 
       // Total count should include both tokens
-      expect(await streaming.getTotalListenCount()).to.equal(
+      expect(await streaming.getTotalListenCount(musicNFT.target)).to.equal(
         listenCount1 + listenCount2
       );
 
       // Individual token counts should be correct
-      expect(await streaming.getListenCount(tokenId1)).to.equal(listenCount1);
-      expect(await streaming.getListenCount(tokenId2)).to.equal(listenCount2);
+      expect(
+        await streaming.getListenCount(musicNFT.target, tokenId1)
+      ).to.equal(listenCount1);
+      expect(
+        await streaming.getListenCount(musicNFT.target, tokenId2)
+      ).to.equal(listenCount2);
     });
 
     it('Should get top listened tokens correctly', async function () {
@@ -339,11 +415,16 @@ describe('NFTStreaming', function () {
 
         await streaming
           .connect(listener)
-          .recordBatchListens(tokenId, listens, payment, { value: payment });
+          .recordBatchListens(musicNFT.target, tokenId, listens, payment, {
+            value: payment,
+          });
       }
 
       // Get top 3 tokens
-      const [tokenIds, counts] = await streaming.getTopListenedTokens(3);
+      const [tokenIds, counts] = await streaming.getTopListenedTokens(
+        musicNFT.target,
+        3
+      );
 
       // Should return 3 tokens
       expect(tokenIds.length).to.equal(3);
@@ -378,18 +459,33 @@ describe('NFTStreaming', function () {
 
       await streaming
         .connect(listener)
-        .recordBatchListens(1, listenCount1, ethers.parseEther('1.0'), {
-          value: ethers.parseEther('1.0'),
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          1,
+          listenCount1,
+          ethers.parseEther('1.0'),
+          {
+            value: ethers.parseEther('1.0'),
+          }
+        );
 
       await streaming
         .connect(listener)
-        .recordBatchListens(2, listenCount2, ethers.parseEther('2.0'), {
-          value: ethers.parseEther('2.0'),
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          2,
+          listenCount2,
+          ethers.parseEther('2.0'),
+          {
+            value: ethers.parseEther('2.0'),
+          }
+        );
 
       // Request top 10 tokens when only 2 exist
-      const [tokenIds, counts] = await streaming.getTopListenedTokens(10);
+      const [tokenIds, counts] = await streaming.getTopListenedTokens(
+        musicNFT.target,
+        10
+      );
 
       // Should return only 2 tokens
       expect(tokenIds.length).to.equal(2);
@@ -417,19 +513,34 @@ describe('NFTStreaming', function () {
 
       await streaming
         .connect(listener)
-        .recordBatchListens(1, listenCount1, ethers.parseEther('1.0'), {
-          value: ethers.parseEther('1.0'),
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          1,
+          listenCount1,
+          ethers.parseEther('1.0'),
+          {
+            value: ethers.parseEther('1.0'),
+          }
+        );
 
       await streaming
         .connect(listener)
-        .recordBatchListens(2, listenCount2, ethers.parseEther('2.0'), {
-          value: ethers.parseEther('2.0'),
-        });
+        .recordBatchListens(
+          musicNFT.target,
+          2,
+          listenCount2,
+          ethers.parseEther('2.0'),
+          {
+            value: ethers.parseEther('2.0'),
+          }
+        );
 
       // Get creator data for first creator
       const [creatorTokenIds, creatorListenCounts] =
-        await streaming.getListenDataByCreator(creator.address);
+        await streaming.getListenDataByCreator(
+          musicNFT.target,
+          creator.address
+        );
 
       // Should only return the token created by this creator
       expect(creatorTokenIds.length).to.equal(1);
@@ -438,7 +549,10 @@ describe('NFTStreaming', function () {
 
       // Get creator data for second creator
       const [creator2TokenIds, creator2ListenCounts] =
-        await streaming.getListenDataByCreator(newOwner.address);
+        await streaming.getListenDataByCreator(
+          musicNFT.target,
+          newOwner.address
+        );
 
       // Should only return the token created by the second creator
       expect(creator2TokenIds.length).to.equal(1);
@@ -460,26 +574,28 @@ describe('NFTStreaming', function () {
       const paymentAmount = ethers.parseEther('1.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(1, listenCount, paymentAmount, {
+        .recordBatchListens(musicNFT.target, 1, listenCount, paymentAmount, {
           value: paymentAmount,
         });
 
-      // Get individual payments
+      // Check creator payments
       const creatorPayment = await streaming.getPendingPayment(creator.address);
-      const ownerPayment = await streaming.getPendingPayment(newOwner.address);
+      expect(creatorPayment).to.be.gt(0);
 
-      // Total pending payments should equal the sum of individual payments
-      expect(await streaming.getTotalPendingPayments()).to.equal(
-        creatorPayment + ownerPayment
+      // Check owner payments
+      const ownerPayment = await streaming.getPendingPayment(newOwner.address);
+      expect(ownerPayment).to.be.gt(0);
+
+      // After one party withdraws, their payment should be zero
+      await streaming.connect(creator).withdrawPayments();
+      expect(await streaming.getPendingPayment(creator.address)).to.equal(0);
+      expect(await streaming.getPendingPayment(newOwner.address)).to.equal(
+        ownerPayment
       );
 
-      // After one party withdraws, total should be updated
-      await streaming.connect(creator).withdrawPayments();
-      expect(await streaming.getTotalPendingPayments()).to.equal(ownerPayment);
-
-      // After all withdrawals, total should be zero
+      // After all withdrawals, all payments should be zero
       await streaming.connect(newOwner).withdrawPayments();
-      expect(await streaming.getTotalPendingPayments()).to.equal(0);
+      expect(await streaming.getPendingPayment(newOwner.address)).to.equal(0);
     });
   });
 });
