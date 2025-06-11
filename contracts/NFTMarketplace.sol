@@ -6,10 +6,13 @@ import "@openzeppelin/contracts/token/ERC721/utils/ERC721Holder.sol";
 import "@openzeppelin/contracts/interfaces/IERC2981.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 import "./MusicNFT.sol";
 
 contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
-    uint256 public marketFeePercentage = 250;
+    using Address for address payable;
+
+    uint256 public constant marketFeePercentage = 250; // 2.5%
 
     struct Listing {
         address seller;
@@ -63,13 +66,8 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
         address nftContract,
         uint256 tokenId,
         uint256 price
-    ) external returns (uint256) {
-        IERC721(nftContract).safeTransferFrom(
-            msg.sender,
-            address(this),
-            tokenId
-        );
-
+    ) external nonReentrant returns (uint256) {
+        // Update state before external call
         _listingIds++;
         uint256 listingId = _listingIds;
 
@@ -80,6 +78,13 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
             price: price,
             isActive: true
         });
+
+        // External call should be last
+        IERC721(nftContract).safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenId
+        );
 
         emit NFTListed(listingId, msg.sender, nftContract, tokenId, price);
         return listingId;
@@ -145,10 +150,7 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
 
         uint256 excessAmount = msg.value - price;
         if (excessAmount > 0) {
-            (bool success, ) = msg.sender.call{value: excessAmount}("");
-            if (!success) {
-                revert TransferFailed();
-            }
+            payable(msg.sender).sendValue(excessAmount);
         }
     }
 
@@ -192,10 +194,7 @@ contract NFTMarketplace is ERC721Holder, Ownable, ReentrancyGuard {
 
         _pendingPayments[msg.sender] = 0;
 
-        (bool success, ) = msg.sender.call{value: amount}("");
-        if (!success) {
-            revert TransferFailed();
-        }
+        payable(msg.sender).sendValue(amount);
 
         emit PaymentWithdrawn(msg.sender, amount);
         return amount;

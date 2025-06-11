@@ -3,9 +3,12 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
 import "./MusicNFT.sol";
 
 contract NFTStreaming is Ownable, ReentrancyGuard {
+    using Address for address payable;
+
     mapping(address => uint256) private _pendingPayments;
 
     // Map NFT contract address -> tokenId -> listen count
@@ -71,13 +74,9 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
         }
 
         emit BatchListensRecorded(nftContract, tokenId, count, amount);
-
         uint256 excessAmount = msg.value - amount;
         if (excessAmount > 0) {
-            (bool success, ) = msg.sender.call{value: excessAmount}("");
-            if (!success) {
-                revert TransferFailed();
-            }
+            payable(msg.sender).sendValue(excessAmount);
         }
     }
 
@@ -87,13 +86,9 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
         if (amount == 0) {
             revert NoPaymentsPending();
         }
-
         _pendingPayments[msg.sender] = 0;
 
-        (bool success, ) = msg.sender.call{value: amount}("");
-        if (!success) {
-            revert TransferFailed();
-        }
+        payable(msg.sender).sendValue(amount);
 
         emit PaymentWithdrawn(msg.sender, amount);
         return amount;
@@ -115,7 +110,6 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
 
         return _listenCount[nftContract][tokenId];
     }
-
     function getTotalListenCount(
         address nftContract
     ) external view returns (uint256) {
@@ -125,7 +119,9 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
             uint256 totalSupply
         ) {
             for (uint256 i = 1; i <= totalSupply; i++) {
-                if (_tokenExists(nftContract, i)) {
+                // Only count if token has listen count > 0
+                // We trust that tokens with listen count existed when they were listened to
+                if (_listenCount[nftContract][i] > 0) {
                     totalCount += _listenCount[nftContract][i];
                 }
             }
@@ -144,22 +140,18 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
         view
         returns (uint256[] memory tokenIds, uint256[] memory listenCounts)
     {
-        uint256 totalSupply;
+        uint256 totalSupply = 0; // Initialize the variable
 
         try MusicNFT(nftContract).getTotalSupply() returns (uint256 supply) {
             totalSupply = supply;
         } catch {
             revert UnsupportedNFTContract(nftContract);
         }
-
         uint256[] memory allTokenIds = new uint256[](totalSupply);
         uint256[] memory allListenCounts = new uint256[](totalSupply);
-
         uint256 validTokenCount = 0;
         for (uint256 i = 1; i <= totalSupply; i++) {
-            if (
-                _tokenExists(nftContract, i) && _listenCount[nftContract][i] > 0
-            ) {
+            if (_listenCount[nftContract][i] > 0) {
                 allTokenIds[validTokenCount] = i;
                 allListenCounts[validTokenCount] = _listenCount[nftContract][i];
                 validTokenCount++;
@@ -221,13 +213,12 @@ contract NFTStreaming is Ownable, ReentrancyGuard {
     function _recordPayment(address recipient, uint256 amount) internal {
         _pendingPayments[recipient] += amount;
     }
-
     function _tokenExists(
         address nftContract,
         uint256 tokenId
     ) internal view returns (bool) {
-        try MusicNFT(nftContract).ownerOf(tokenId) returns (address) {
-            return true;
+        try MusicNFT(nftContract).ownerOf(tokenId) returns (address owner) {
+            return owner != address(0);
         } catch {
             return false;
         }

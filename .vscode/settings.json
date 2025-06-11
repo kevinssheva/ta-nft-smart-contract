@@ -1,0 +1,13 @@
+{
+  "slither.solcPath": "",
+  "slither.hiddenDetectors": [],
+  "slither.excludePaths": [
+    "node_modules/**",
+    "@openzeppelin/**",
+    "artifacts/**",
+    "cache/**",
+    "typechain-types/**",
+    "ignition/**"
+  ],
+  "slither.analysisMode": "contracts-only"
+}
