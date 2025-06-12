@@ -3,7 +3,13 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "check": "hardhat run scripts/check-deployment.ts",
+    "check:sepolia": "hardhat run scripts/check-deployment.ts --network sepolia",
+    "deploy:local": "hardhat ignition deploy ignition/modules/NFTEcosystem.ts --network hardhat",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/NFTEcosystem.ts --network sepolia",
+    "verify:sepolia": "hardhat verify --network sepolia"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +20,7 @@
     "hardhat": "^2.23.0"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.3.0"
+    "@openzeppelin/contracts": "^5.3.0",
+    "dotenv": "^16.5.0"
   }
 }
