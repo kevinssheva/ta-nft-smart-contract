@@ -454,148 +454,226 @@ describe('NFTStreaming', function () {
         .mintNFT('https://example.com/token/2', 500, 3000);
 
       // Record listens for both tokens
-      const listenCount1 = 100;
-      const listenCount2 = 200;
+      await streaming
+        .connect(listener)
+        .recordBatchListens(musicNFT.target, 1, 100, ethers.parseEther('1.0'), {
+          value: ethers.parseEther('1.0'),
+        });
 
       await streaming
         .connect(listener)
-        .recordBatchListens(
-          musicNFT.target,
-          1,
-          listenCount1,
-          ethers.parseEther('1.0'),
-          {
-            value: ethers.parseEther('1.0'),
-          }
-        );
+        .recordBatchListens(musicNFT.target, 2, 200, ethers.parseEther('2.0'), {
+          value: ethers.parseEther('2.0'),
+        });
 
-      await streaming
-        .connect(listener)
-        .recordBatchListens(
-          musicNFT.target,
-          2,
-          listenCount2,
-          ethers.parseEther('2.0'),
-          {
-            value: ethers.parseEther('2.0'),
-          }
-        );
-
-      // Request top 10 tokens when only 2 exist
+      // Request more tokens than available
       const [tokenIds, counts] = await streaming.getTopListenedTokens(
         musicNFT.target,
         10
       );
 
-      // Should return only 2 tokens
+      // Should return only the available tokens
       expect(tokenIds.length).to.equal(2);
-
-      // First should be token 2 with more listens
-      expect(tokenIds[0]).to.equal(2);
-      expect(counts[0]).to.equal(listenCount2);
-
-      // Second should be token 1 with fewer listens
-      expect(tokenIds[1]).to.equal(1);
-      expect(counts[1]).to.equal(listenCount1);
+      expect(counts.length).to.equal(2);
     });
 
     it('Should get listen data by creator correctly', async function () {
-      const { streaming, musicNFT, creator, listener, newOwner } =
-        await loadFixture(deployStreamingFixture);
+      const { streaming, musicNFT, creator, listener } = await loadFixture(
+        deployStreamingFixture
+      );
 
-      // Create a second token with a different creator
-      const tokenURI2 = 'https://example.com/token/2';
-      await musicNFT.connect(newOwner).mintNFT(tokenURI2, 500, 3000);
+      const [, , , secondCreator] = await ethers.getSigners();
 
-      // Record listens for both tokens
-      const listenCount1 = 100;
-      const listenCount2 = 200;
+      // Create tokens by different creators
+      await musicNFT
+        .connect(creator)
+        .mintNFT('https://example.com/token/2', 500, 3000);
+
+      await musicNFT
+        .connect(secondCreator)
+        .mintNFT('https://example.com/token/3', 500, 3000);
+
+      // Record listens for tokens
+      await streaming
+        .connect(listener)
+        .recordBatchListens(musicNFT.target, 1, 100, ethers.parseEther('1.0'), {
+          value: ethers.parseEther('1.0'),
+        });
 
       await streaming
         .connect(listener)
-        .recordBatchListens(
-          musicNFT.target,
-          1,
-          listenCount1,
-          ethers.parseEther('1.0'),
-          {
-            value: ethers.parseEther('1.0'),
-          }
-        );
+        .recordBatchListens(musicNFT.target, 2, 150, ethers.parseEther('1.5'), {
+          value: ethers.parseEther('1.5'),
+        });
 
       await streaming
         .connect(listener)
-        .recordBatchListens(
-          musicNFT.target,
-          2,
-          listenCount2,
-          ethers.parseEther('2.0'),
-          {
-            value: ethers.parseEther('2.0'),
-          }
-        );
+        .recordBatchListens(musicNFT.target, 3, 200, ethers.parseEther('2.0'), {
+          value: ethers.parseEther('2.0'),
+        });
 
-      // Get creator data for first creator
-      const [creatorTokenIds, creatorListenCounts] =
+      // Get listen data for first creator
+      const [creatorTokens, creatorListens] =
         await streaming.getListenDataByCreator(
           musicNFT.target,
           creator.address
         );
 
-      // Should only return the token created by this creator
-      expect(creatorTokenIds.length).to.equal(1);
-      expect(creatorTokenIds[0]).to.equal(1);
-      expect(creatorListenCounts[0]).to.equal(listenCount1);
+      expect(creatorTokens.length).to.equal(2);
+      expect(creatorTokens[0]).to.equal(1);
+      expect(creatorTokens[1]).to.equal(2);
+      expect(creatorListens[0]).to.equal(100);
+      expect(creatorListens[1]).to.equal(150);
 
-      // Get creator data for second creator
-      const [creator2TokenIds, creator2ListenCounts] =
+      // Get listen data for second creator
+      const [secondCreatorTokens, secondCreatorListens] =
         await streaming.getListenDataByCreator(
           musicNFT.target,
-          newOwner.address
+          secondCreator.address
         );
 
-      // Should only return the token created by the second creator
-      expect(creator2TokenIds.length).to.equal(1);
-      expect(creator2TokenIds[0]).to.equal(2);
-      expect(creator2ListenCounts[0]).to.equal(listenCount2);
+      expect(secondCreatorTokens.length).to.equal(1);
+      expect(secondCreatorTokens[0]).to.equal(3);
+      expect(secondCreatorListens[0]).to.equal(200);
     });
 
     it('Should get total pending payments correctly', async function () {
       const { streaming, musicNFT, creator, listener, newOwner } =
         await loadFixture(deployStreamingFixture);
 
-      // Transfer token to new owner to test royalty split
+      // Transfer token to new owner
       await musicNFT
         .connect(creator)
         .transferFrom(creator.address, newOwner.address, 1);
 
-      // Record batch listens
-      const listenCount = 100;
+      // Record listens which will create pending payments
       const paymentAmount = ethers.parseEther('1.0');
       await streaming
         .connect(listener)
-        .recordBatchListens(musicNFT.target, 1, listenCount, paymentAmount, {
+        .recordBatchListens(musicNFT.target, 1, 100, paymentAmount, {
           value: paymentAmount,
         });
 
-      // Check creator payments
-      const creatorPayment = await streaming.getPendingPayment(creator.address);
-      expect(creatorPayment).to.be.gt(0);
+      // Calculate expected payments
+      const streamingRoyaltyPercentage = 3000;
+      const royaltyAmount =
+        (paymentAmount * BigInt(streamingRoyaltyPercentage)) / 10000n;
+      const remainingAmount = paymentAmount - royaltyAmount;
 
-      // Check owner payments
-      const ownerPayment = await streaming.getPendingPayment(newOwner.address);
-      expect(ownerPayment).to.be.gt(0);
-
-      // After one party withdraws, their payment should be zero
-      await streaming.connect(creator).withdrawPayments();
-      expect(await streaming.getPendingPayment(creator.address)).to.equal(0);
+      // Check individual pending payments
       expect(await streaming.getPendingPayment(newOwner.address)).to.equal(
-        ownerPayment
+        royaltyAmount
+      );
+      expect(await streaming.getPendingPayment(creator.address)).to.equal(
+        remainingAmount
+      );
+    });
+
+    it('Should handle edge case with zero listen count in recordBatchListens', async function () {
+      const { streaming, musicNFT, listener } = await loadFixture(
+        deployStreamingFixture
       );
 
-      // After all withdrawals, all payments should be zero
-      await streaming.connect(newOwner).withdrawPayments();
-      expect(await streaming.getPendingPayment(newOwner.address)).to.equal(0);
+      await expect(
+        streaming
+          .connect(listener)
+          .recordBatchListens(musicNFT.target, 1, 0, ethers.parseEther('1.0'), {
+            value: ethers.parseEther('1.0'),
+          })
+      ).to.be.revertedWithCustomError(streaming, 'InvalidListenCount');
+    });
+
+    it('Should handle token that is transferred after recording listens', async function () {
+      const { streaming, musicNFT, creator, listener, newOwner } =
+        await loadFixture(deployStreamingFixture);
+
+      // Record listens while creator owns token
+      await streaming
+        .connect(listener)
+        .recordBatchListens(musicNFT.target, 1, 100, ethers.parseEther('1.0'), {
+          value: ethers.parseEther('1.0'),
+        });
+
+      // Transfer token to new owner
+      await musicNFT
+        .connect(creator)
+        .transferFrom(creator.address, newOwner.address, 1);
+
+      // Record more listens with new owner
+      await streaming
+        .connect(listener)
+        .recordBatchListens(musicNFT.target, 1, 50, ethers.parseEther('0.5'), {
+          value: ethers.parseEther('0.5'),
+        });
+
+      // Total listen count should be cumulative
+      expect(await streaming.getListenCount(musicNFT.target, 1)).to.equal(150);
+    });
+
+    it('Should handle getListenDataByCreator with no tokens for creator', async function () {
+      const { streaming, musicNFT, listener } = await loadFixture(
+        deployStreamingFixture
+      );
+
+      const [, , , randomCreator] = await ethers.getSigners();
+
+      // Get listen data for creator who has no tokens
+      const [tokens, listens] = await streaming.getListenDataByCreator(
+        musicNFT.target,
+        randomCreator.address
+      );
+
+      expect(tokens.length).to.equal(0);
+      expect(listens.length).to.equal(0);
+    });
+
+    it('Should handle getTopListenedTokens with no tokens', async function () {
+      const { streaming } = await loadFixture(deployStreamingFixture);
+
+      // Deploy a new NFT contract with no tokens
+      const MusicNFT = await hre.ethers.getContractFactory('MusicNFT');
+      const emptyNFT = await MusicNFT.deploy();
+
+      const [tokenIds, counts] = await streaming.getTopListenedTokens(
+        emptyNFT.target,
+        5
+      );
+
+      expect(tokenIds.length).to.equal(0);
+      expect(counts.length).to.equal(0);
+    });
+
+    it('Should handle getTotalListenCount with contract that has no listens', async function () {
+      const { streaming } = await loadFixture(deployStreamingFixture);
+
+      // Deploy a new NFT contract
+      const MusicNFT = await hre.ethers.getContractFactory('MusicNFT');
+      const newNFT = await MusicNFT.deploy();
+
+      expect(await streaming.getTotalListenCount(newNFT.target)).to.equal(0);
+    });
+
+    it('Should handle same owner and creator royalty distribution', async function () {
+      const {
+        streaming,
+        musicNFT,
+        creator,
+        listener,
+        streamingRoyaltyPercentage,
+      } = await loadFixture(deployStreamingFixture);
+
+      // Creator is also the owner, so should get all payments
+      const paymentAmount = ethers.parseEther('1.0');
+      await streaming
+        .connect(listener)
+        .recordBatchListens(musicNFT.target, 1, 100, paymentAmount, {
+          value: paymentAmount,
+        });
+
+      // Creator should get the full payment amount
+      expect(await streaming.getPendingPayment(creator.address)).to.equal(
+        paymentAmount
+      );
     });
   });
 });

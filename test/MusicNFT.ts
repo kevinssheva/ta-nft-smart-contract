@@ -332,5 +332,75 @@ describe('MusicNFT', function () {
       expect(details.salesRoyaltyReceiver).to.equal(owner.address);
       expect(details.salesRoyaltyPercentage).to.equal(salesRoyaltyPercentage);
     });
+
+    it('Should return empty array for address with no created tokens', async function () {
+      const { musicNFT, otherAccount } = await loadFixture(
+        deployMusicNFTFixture
+      );
+
+      // Create a token with owner but check other account
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+
+      const tokens = await musicNFT.getTokensCreatedBy(otherAccount.address);
+      expect(tokens.length).to.equal(0);
+    });
+
+    it('Should handle getTokensCreatedBy with no tokens existing', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const tokens = await musicNFT.getTokensCreatedBy(owner.address);
+      expect(tokens.length).to.equal(0);
+    });
+  });
+
+  describe('Sales Royalty Functions', function () {
+    it('Should get sales royalty information correctly', async function () {
+      const { musicNFT, owner } = await loadFixture(deployMusicNFTFixture);
+
+      const salesRoyaltyPercentage = 750; // 7.5%
+      await musicNFT.mintNFT(
+        'https://example.com/token/1',
+        salesRoyaltyPercentage,
+        1000
+      );
+
+      const tokenId = 1;
+      const [receiver, royaltyAmount] = await musicNFT.getSalesRoyalty(tokenId);
+
+      expect(receiver).to.equal(owner.address);
+      expect(royaltyAmount).to.equal(750); // Should match the percentage for 10000 base
+    });
+
+    it('Should revert when getting sales royalty for non-existent token', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+      const nonExistentTokenId = 999;
+
+      await expect(musicNFT.getSalesRoyalty(nonExistentTokenId))
+        .to.be.revertedWithCustomError(musicNFT, 'NonexistentToken')
+        .withArgs(nonExistentTokenId);
+    });
+  });
+
+  describe('Additional Utility Functions', function () {
+    it('Should check token existence correctly', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+
+      expect(await musicNFT.tokenExists(1)).to.be.true;
+      expect(await musicNFT.tokenExists(999)).to.be.false;
+    });
+
+    it('Should get total supply correctly', async function () {
+      const { musicNFT } = await loadFixture(deployMusicNFTFixture);
+
+      expect(await musicNFT.getTotalSupply()).to.equal(0);
+
+      await musicNFT.mintNFT('https://example.com/token/1', 500, 1000);
+      expect(await musicNFT.getTotalSupply()).to.equal(1);
+
+      await musicNFT.mintNFT('https://example.com/token/2', 500, 1000);
+      expect(await musicNFT.getTotalSupply()).to.equal(2);
+    });
   });
 });
